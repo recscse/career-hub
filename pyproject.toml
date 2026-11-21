@@ -11,6 +11,7 @@ dependencies = [
 
 [project.scripts]
 career-hub = "career_hub.server:main"
+career-hub-admin = "career_hub.admin:main"
 
 [build-system]
 requires = ["hatchling"]

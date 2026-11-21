@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
+import os
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
-from . import connectors, db, matching, resume
+from . import connectors, context, db, matching, resume
 
 mcp = MCPServer(
     "career-hub",
@@ -16,11 +19,42 @@ mcp = MCPServer(
     ),
 )
 
+class UserError(ToolError, ValueError):
+    """An anticipated failure whose message the AI client should see (also a ValueError)."""
+
+
+def safe_tool(fn):
+    """Register fn as an MCP tool, turning ValueError into a ToolError so the message reaches the model.
+
+    The SDK hides the text of any other exception (it is treated as a crash).
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except UserError:
+            raise
+        except ValueError as e:
+            raise UserError(str(e)) from e
+
+    return mcp.tool()(wrapper)
+
+
 _state: dict = {}
 
 
 def _ctx():
-    """Open the database lazily; single-user mode uses the first user."""
+    """Return (connection, user_id).
+
+    Local mode: one shared connection and the first user. Hosted mode: the user authenticated
+    for this request (set by the HTTP middleware) and a per-thread connection.
+    """
+    if context.hosted():
+        uid = context.current_user.get()
+        if uid is None:
+            raise PermissionError("not authenticated")
+        return context.thread_connection(), uid
     if "con" not in _state:
         con = db.connect()
         _state["con"] = con
@@ -71,13 +105,13 @@ def contributions_resource() -> str:
 # ---- tools (actions) ----------------------------------------------------------
 
 
-@mcp.tool()
+@safe_tool
 def get_summary() -> str:
     """Markdown summary of the developer's whole career context (use as AI context)."""
     return summary_resource()
 
 
-@mcp.tool()
+@safe_tool
 def set_profile(
     name: str | None = None,
     headline: str | None = None,
@@ -92,14 +126,14 @@ def set_profile(
     return db.set_profile(con, uid, **fields)
 
 
-@mcp.tool()
+@safe_tool
 def add_skill(name: str, level: str | None = None, years: float | None = None, evidence: str | None = None) -> dict:
     """Add a skill. level e.g. beginner/intermediate/advanced; evidence = where you used it."""
     con, uid = _ctx()
     return db.add_item(con, uid, "skills", name=name, level=level, years=years, evidence=evidence)
 
 
-@mcp.tool()
+@safe_tool
 def add_experience(
     role: str,
     company: str | None = None,
@@ -116,7 +150,7 @@ def add_experience(
     )
 
 
-@mcp.tool()
+@safe_tool
 def add_project(
     name: str,
     description: str | None = None,
@@ -129,28 +163,28 @@ def add_project(
     return db.add_item(con, uid, "projects", name=name, description=description, stack=stack, url=url, outcome=outcome)
 
 
-@mcp.tool()
+@safe_tool
 def log_contribution(repo: str, title: str | None = None, url: str | None = None, status: str | None = None) -> dict:
     """Record an open-source issue/PR. status e.g. claimed/open/merged. url must be unique."""
     con, uid = _ctx()
     return db.add_item(con, uid, "contributions", repo=repo, title=title, url=url, status=status)
 
 
-@mcp.tool()
+@safe_tool
 def list_items(table: str) -> list[dict]:
     """List rows. table is one of: skills, experience, projects, contributions."""
     con, uid = _ctx()
     return db.list_items(con, uid, table)
 
 
-@mcp.tool()
+@safe_tool
 def update_item(table: str, item_id: int, fields: dict) -> dict:
     """Update fields of one row, e.g. table='contributions', item_id=1, fields={'status': 'merged'}."""
     con, uid = _ctx()
     return db.update_item(con, uid, table, item_id, **fields)
 
 
-@mcp.tool()
+@safe_tool
 def delete_item(table: str, item_id: int) -> str:
     """Delete one row."""
     con, uid = _ctx()
@@ -158,20 +192,37 @@ def delete_item(table: str, item_id: int) -> str:
     return f"deleted {table} {item_id}"
 
 
-@mcp.tool()
+@safe_tool
 def import_resume(path: str) -> str:
     """Read a resume file (.pdf, .docx, .txt, .md) and return its text with instructions.
 
     Follow the returned instructions to save the data with the add_* tools. The server does not
     parse the resume itself; you do the mapping, and the user should confirm what is saved.
     """
+    if context.hosted():
+        raise ValueError(
+            "import_resume reads files on the server and is disabled in hosted mode. "
+            "Read the resume locally and pass its text to import_resume_text instead."
+        )
     try:
         return resume.import_payload(path)
     except resume.ResumeError as e:
         raise ValueError(str(e)) from e
 
 
-@mcp.tool()
+@safe_tool
+def import_resume_text(text: str) -> str:
+    """Same as import_resume but takes the resume text directly (works in hosted mode).
+
+    Returns the text with instructions; follow them to save the data with the add_* tools.
+    """
+    try:
+        return resume.import_payload_from_text(text)
+    except resume.ResumeError as e:
+        raise ValueError(str(e)) from e
+
+
+@safe_tool
 def export_resume(focus_skills: list[str] | None = None, public_only: bool = False) -> str:
     """Build a Markdown resume from stored data. focus_skills are listed first (tailor to a role).
 
@@ -181,7 +232,7 @@ def export_resume(focus_skills: list[str] | None = None, public_only: bool = Fal
     return resume.export_markdown(con, uid, focus_skills=focus_skills, public_only=public_only)
 
 
-@mcp.tool()
+@safe_tool
 def add_job(
     title: str,
     company: str | None = None,
@@ -201,7 +252,7 @@ def add_job(
     )
 
 
-@mcp.tool()
+@safe_tool
 def compare_job_to_profile(job_id: int | None = None, description: str | None = None) -> dict:
     """Score a saved job (job_id) or pasted text (description) against the stored skills.
 
@@ -212,7 +263,7 @@ def compare_job_to_profile(job_id: int | None = None, description: str | None = 
     return matching.compare(con, uid, job_id=job_id, description=description)
 
 
-@mcp.tool()
+@safe_tool
 def track_application(
     job_id: int,
     status: str | None = None,
@@ -228,28 +279,28 @@ def track_application(
     )
 
 
-@mcp.tool()
+@safe_tool
 def list_applications(status: str | None = None) -> list[dict]:
     """List applications with their job, newest update first. Optionally filter by status."""
     con, uid = _ctx()
     return db.list_applications(con, uid, status=status)
 
 
-@mcp.tool()
+@safe_tool
 def stale_applications(days: int = 7) -> list[dict]:
     """Applied/interview applications with no update for `days` days, or whose follow-up date has come."""
     con, uid = _ctx()
     return db.stale_applications(con, uid, days)
 
 
-@mcp.tool()
+@safe_tool
 def pipeline_stats() -> dict:
     """Counts of applications per status and the interview rate."""
     con, uid = _ctx()
     return db.funnel(con, uid)
 
 
-@mcp.tool()
+@safe_tool
 def add_company(
     name: str,
     website: str | None = None,
@@ -267,7 +318,7 @@ def add_company(
     )
 
 
-@mcp.tool()
+@safe_tool
 def add_prep_task(
     topic: str,
     company: str | None = None,
@@ -280,21 +331,21 @@ def add_prep_task(
     return db.add_item(con, uid, "prep", topic=topic, company=company, resource=resource, due_date=due_date, notes=notes)
 
 
-@mcp.tool()
+@safe_tool
 def set_prep_status(task_id: int, status: str) -> dict:
     """Set a prep task status: todo, doing or done."""
     con, uid = _ctx()
     return db.update_item(con, uid, "prep", task_id, status=status)
 
 
-@mcp.tool()
+@safe_tool
 def prep_plan() -> dict:
     """Open prep tasks, earliest due first, with counts per status."""
     con, uid = _ctx()
     return db.prep_plan(con, uid)
 
 
-@mcp.tool()
+@safe_tool
 def save_resume_version(label: str, content: str | None = None, target_role: str | None = None, notes: str | None = None) -> dict:
     """Save a resume version under a unique label. If content is omitted, the current stored data
     is exported to Markdown and snapshotted, so you can compare it with later tailored versions."""
@@ -305,28 +356,28 @@ def save_resume_version(label: str, content: str | None = None, target_role: str
     return {k: v for k, v in item.items() if k != "content"} | {"chars": len(content)}
 
 
-@mcp.tool()
+@safe_tool
 def list_resume_versions() -> list[dict]:
     """List saved resume versions (without their content)."""
     con, uid = _ctx()
     return db.list_resume_versions(con, uid)
 
 
-@mcp.tool()
+@safe_tool
 def get_resume_version(version_id: int) -> dict:
     """Return one saved resume version including its content."""
     con, uid = _ctx()
     return db.get_item(con, uid, "resume_versions", version_id)
 
 
-@mcp.tool()
+@safe_tool
 def diff_resume_versions(a_id: int, b_id: int) -> str:
     """Unified diff between two saved resume versions (a -> b)."""
     con, uid = _ctx()
     return db.diff_versions(con, uid, a_id, b_id)
 
 
-@mcp.tool()
+@safe_tool
 def weekly_review() -> dict:
     """One-call review: pipeline stats, applications needing follow-up, prep due, contribution
     statuses and top target companies. Use it to suggest the next three actions."""
@@ -334,7 +385,7 @@ def weekly_review() -> dict:
     return db.weekly_review(con, uid)
 
 
-@mcp.tool()
+@safe_tool
 def search_jobs(
     provider: str,
     board: str | None = None,
@@ -381,7 +432,7 @@ def search_jobs(
     }
 
 
-@mcp.tool()
+@safe_tool
 def sync_github_contributions(username: str) -> dict:
     """Import the user's public pull requests to other people's repos as contributions, and refresh
     the status (open/merged/closed) of ones already stored. Uses GITHUB_TOKEN if set (higher limits)."""
@@ -404,7 +455,17 @@ def sync_github_contributions(username: str) -> dict:
 
 
 def main() -> None:
-    mcp.run()
+    """Local mode: stdio. Hosted mode (CAREER_HUB_MODE=hosted): HTTP with token auth."""
+    if not context.hosted():
+        mcp.run()
+        return
+    import uvicorn
+
+    from .http import build_app
+
+    host = os.environ.get("CAREER_HUB_HOST", "127.0.0.1")
+    port = int(os.environ.get("CAREER_HUB_PORT", "8000"))
+    uvicorn.run(build_app(mcp, host), host=host, port=port, proxy_headers=True, forwarded_allow_ips="127.0.0.1")
 
 
 if __name__ == "__main__":

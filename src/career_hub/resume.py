@@ -74,6 +74,15 @@ def import_payload(path: str) -> str:
     return f"{IMPORT_INSTRUCTIONS}\n--- RESUME TEXT START ---\n{text}\n--- RESUME TEXT END ---"
 
 
+def import_payload_from_text(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        raise ResumeError("no resume text provided")
+    if len(text) > MAX_CHARS:
+        raise ResumeError(f"resume text too long (max {MAX_CHARS} characters)")
+    return f"{IMPORT_INSTRUCTIONS}\n--- RESUME TEXT START ---\n{text}\n--- RESUME TEXT END ---"
+
+
 def export_markdown(
     con: sqlite3.Connection,
     user_id: int,

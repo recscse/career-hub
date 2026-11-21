@@ -77,3 +77,18 @@ async def test_job_search_flow(tmp_path):
         assert stats["by_status"]["applied"] == 1
         bad = await s.call_tool("track_application", {"job_id": job["id"], "status": "nope"})
         assert bad.is_error
+
+
+@pytest.mark.asyncio
+async def test_validation_messages_reach_the_ai_client(tmp_path):
+    """The SDK hides plain exceptions; our ValueErrors must surface as readable tool errors."""
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "career_hub.server"], env={"CAREER_HUB_DB": str(tmp_path / "c.db")}
+    )
+    async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
+        await s.initialize()
+        bad = await s.call_tool("update_item", {"table": "skills", "item_id": 1, "fields": {"bogus": 1}})
+        assert bad.is_error and "unknown fields" in _text(bad) and "Allowed" in _text(bad)
+        job = json.loads(_text(await s.call_tool("add_job", {"title": "Dev"})))
+        bad = await s.call_tool("track_application", {"job_id": job["id"], "status": "nope"})
+        assert bad.is_error and "status must be one of" in _text(bad)

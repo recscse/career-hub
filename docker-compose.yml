@@ -1,0 +1,12 @@
+services:
+  career-hub:
+    build: .
+    restart: unless-stopped
+    # Bind to localhost only; the reverse proxy on the same host terminates TLS and forwards here.
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["./data:/data"]
+    environment:
+      # Your public hostname(s), comma-separated, as clients send them in the Host header.
+      CAREER_HUB_ALLOWED_HOSTS: "${CAREER_HUB_ALLOWED_HOSTS:?set CAREER_HUB_ALLOWED_HOSTS to your domain}"
+      # Optional, raises GitHub API rate limits for sync_github_contributions. Never commit it.
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"

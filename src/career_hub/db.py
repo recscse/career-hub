@@ -393,3 +393,62 @@ def weekly_review(con: sqlite3.Connection, user_id: int) -> dict:
 
 def _today(con: sqlite3.Connection) -> str:
     return con.execute("SELECT date('now')").fetchone()[0]
+
+
+# ---- administration (hosted mode) -----------------------------------------------
+
+USER_TABLES = (
+    "applications", "jobs", "skills", "experience", "projects",
+    "contributions", "companies", "prep", "resume_versions", "profile",
+)
+
+
+def list_users(con: sqlite3.Connection) -> list[dict]:
+    return [dict(r) for r in con.execute("SELECT id, name, token_hash IS NOT NULL AS has_token FROM users ORDER BY id")]
+
+
+def rotate_token(con: sqlite3.Connection, user_id: int) -> str:
+    """Issue a new token for the user; the old one stops working immediately."""
+    if not con.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+        raise ValueError(f"user {user_id} not found")
+    token = secrets.token_urlsafe(32)
+    con.execute("UPDATE users SET token_hash = ? WHERE id = ?", (_hash(token), user_id))
+    con.commit()
+    return token
+
+
+def export_user(con: sqlite3.Connection, user_id: int) -> dict:
+    """All of one user's data (never the token hash), for data portability."""
+    user = con.execute("SELECT id, name FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        raise ValueError(f"user {user_id} not found")
+    data: dict = {"user": dict(user)}
+    for t in USER_TABLES:
+        data[t] = [dict(r) for r in con.execute(f"SELECT * FROM {t} WHERE user_id = ? ORDER BY 1", (user_id,))]
+    return data
+
+
+def delete_user(con: sqlite3.Connection, user_id: int) -> dict:
+    """Permanently delete a user and every row they own. Returns the number of rows removed per table."""
+    if not con.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+        raise ValueError(f"user {user_id} not found")
+    removed = {}
+    for t in USER_TABLES:
+        removed[t] = con.execute(f"DELETE FROM {t} WHERE user_id = ?", (user_id,)).rowcount
+    con.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    con.commit()
+    return removed
+
+
+def backup(con: sqlite3.Connection, dest: str | Path) -> Path:
+    """Consistent online copy of the database (safe while the server is running)."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        raise ValueError(f"refusing to overwrite existing file: {dest}")
+    out = sqlite3.connect(str(dest))
+    try:
+        con.backup(out)
+    finally:
+        out.close()
+    return dest

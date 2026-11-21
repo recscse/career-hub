@@ -27,5 +27,11 @@ Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project
 
 Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
 
+## Hosted mode
+Set `CAREER_HUB_MODE=hosted` to serve MCP over HTTP at `/mcp` with per-user bearer tokens, rate limits and
+DNS-rebinding protection. Manage users with `career-hub-admin` (create-user, rotate-token, export,
+delete-user, backup). Docker files and a step-by-step guide are in `DEPLOY.md`. In hosted mode
+`import_resume` (reads server files) is disabled; use `import_resume_text`.
+
 ## Roadmap
-Next: HTTP transport + token auth, Docker, PyPI packaging, multi-user hardening, HTTP transport + token auth, Docker.
+Next: PyPI packaging, schema migrations, Postgres option, security review before inviting others, HTTP transport + token auth, Docker.
