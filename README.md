@@ -20,9 +20,11 @@ Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project
 `import_resume(path)` (PDF/DOCX/TXT/MD -> text + instructions; the agent saves the data),
 `export_resume(focus_skills, public_only)` (Markdown resume),
 `add_job`, `compare_job_to_profile` (keyword skill match: matched/missing/score), `track_application`,
-`list_applications`, `stale_applications`, `pipeline_stats`.
+`list_applications`, `stale_applications`, `pipeline_stats`,
+`add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan`,
+`save_resume_version`, `list_resume_versions`, `get_resume_version`, `diff_resume_versions`, `weekly_review`.
 
 Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
 
 ## Roadmap
-Next: prep tracker, company watchlist, resume versions, job-board connectors, HTTP transport + token auth, Docker.
+Next: job-board connectors (Greenhouse/Lever/Ashby/HN), GitHub contribution sync, HTTP transport + token auth, Docker.

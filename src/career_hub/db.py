@@ -63,6 +63,24 @@ CREATE TABLE IF NOT EXISTS applications (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, job_id)
 );
+CREATE TABLE IF NOT EXISTS companies (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL, website TEXT, remote_policy TEXT, pay_notes TEXT,
+    repo_url TEXT, priority INTEGER, notes TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    UNIQUE(user_id, name)
+);
+CREATE TABLE IF NOT EXISTS prep (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    topic TEXT NOT NULL, company TEXT, resource TEXT,
+    status TEXT NOT NULL DEFAULT 'todo', due_date TEXT, notes TEXT
+);
+CREATE TABLE IF NOT EXISTS resume_versions (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    label TEXT NOT NULL, target_role TEXT, content TEXT NOT NULL, notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, label)
+);
 """
 
 CREATE_INDEXES = """
@@ -80,6 +98,10 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "contributions": ("repo", "title", "url", "status", "visibility"),
     "jobs": ("title", "company", "url", "location", "remote", "description", "required_skills", "source", "visibility"),
 }
+COLUMNS["companies"] = ("name", "website", "remote_policy", "pay_notes", "repo_url", "priority", "notes", "visibility")
+COLUMNS["prep"] = ("topic", "company", "resource", "status", "due_date", "notes")
+COLUMNS["resume_versions"] = ("label", "target_role", "content", "notes")
+PREP_STATUSES = ("todo", "doing", "done")
 STATUSES = ("saved", "applying", "applied", "interview", "offer", "rejected", "ghosted", "withdrawn")
 PROFILE_COLUMNS = ("name", "headline", "summary", "location", "links", "preferences")
 VISIBILITY = ("private", "public")
@@ -131,6 +153,10 @@ def _check(table: str, fields: dict) -> dict:
         raise ValueError(f"unknown fields for {table}: {unknown}. Allowed: {list(allowed)}")
     if "visibility" in fields and fields["visibility"] not in VISIBILITY:
         raise ValueError(f"visibility must be one of {VISIBILITY}")
+    if table == "prep" and "status" in fields and fields["status"] not in PREP_STATUSES:
+        raise ValueError(f"prep status must be one of {PREP_STATUSES}")
+    if table == "companies" and fields.get("priority") is not None and fields["priority"] not in range(1, 6):
+        raise ValueError("priority must be an integer from 1 (low) to 5 (high)")
     return {k: v for k, v in fields.items()}
 
 
@@ -301,3 +327,69 @@ def funnel(con: sqlite3.Connection, user_id: int) -> dict:
         "total": sum(counts.values()),
         "interview_rate_pct": round(100 * interviews / reached) if reached else None,
     }
+
+
+# ---- prep, resume versions, weekly review -------------------------------------
+
+
+def prep_plan(con: sqlite3.Connection, user_id: int) -> dict:
+    """Open prep tasks (earliest due first, undated last) plus counts per status."""
+    rows = con.execute(
+        "SELECT * FROM prep WHERE user_id = ? AND status != 'done' "
+        "ORDER BY due_date IS NULL, due_date, id",
+        (user_id,),
+    )
+    counts = {s: 0 for s in PREP_STATUSES}
+    for r in con.execute("SELECT status, COUNT(*) n FROM prep WHERE user_id = ? GROUP BY status", (user_id,)):
+        counts[r["status"]] = r["n"]
+    return {"open": [dict(r) for r in rows], "counts": counts}
+
+
+def list_resume_versions(con: sqlite3.Connection, user_id: int) -> list[dict]:
+    rows = con.execute(
+        "SELECT id, label, target_role, notes, created_at, length(content) AS chars "
+        "FROM resume_versions WHERE user_id = ? ORDER BY id",
+        (user_id,),
+    )
+    return [dict(r) for r in rows]
+
+
+def diff_versions(con: sqlite3.Connection, user_id: int, a_id: int, b_id: int) -> str:
+    import difflib
+
+    a = get_item(con, user_id, "resume_versions", a_id)
+    b = get_item(con, user_id, "resume_versions", b_id)
+    lines = difflib.unified_diff(
+        a["content"].splitlines(), b["content"].splitlines(), fromfile=a["label"], tofile=b["label"], lineterm=""
+    )
+    return "\n".join(lines) or "(no differences)"
+
+
+def weekly_review(con: sqlite3.Connection, user_id: int) -> dict:
+    """Everything worth looking at this week, in one call."""
+    plan = prep_plan(con, user_id)
+    contribs: dict[str, int] = {}
+    for r in con.execute(
+        "SELECT COALESCE(status, 'unknown') s, COUNT(*) n FROM contributions WHERE user_id = ? GROUP BY s", (user_id,)
+    ):
+        contribs[r["s"]] = r["n"]
+    due = [p for p in plan["open"] if p["due_date"] and p["due_date"] <= _today(con)]
+    return {
+        "pipeline": funnel(con, user_id),
+        "needs_follow_up": stale_applications(con, user_id, 7),
+        "prep_counts": plan["counts"],
+        "prep_due_or_overdue": due,
+        "contributions_by_status": contribs,
+        "top_target_companies": [
+            dict(r)
+            for r in con.execute(
+                "SELECT name, remote_policy, priority FROM companies WHERE user_id = ? AND priority IS NOT NULL "
+                "ORDER BY priority DESC, name LIMIT 5",
+                (user_id,),
+            )
+        ],
+    }
+
+
+def _today(con: sqlite3.Connection) -> str:
+    return con.execute("SELECT date('now')").fetchone()[0]

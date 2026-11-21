@@ -249,6 +249,91 @@ def pipeline_stats() -> dict:
     return db.funnel(con, uid)
 
 
+@mcp.tool()
+def add_company(
+    name: str,
+    website: str | None = None,
+    remote_policy: str | None = None,
+    pay_notes: str | None = None,
+    repo_url: str | None = None,
+    priority: int | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Add a target company to the watchlist. priority is 1 (low) to 5 (high)."""
+    con, uid = _ctx()
+    return db.add_item(
+        con, uid, "companies", name=name, website=website, remote_policy=remote_policy,
+        pay_notes=pay_notes, repo_url=repo_url, priority=priority, notes=notes,
+    )
+
+
+@mcp.tool()
+def add_prep_task(
+    topic: str,
+    company: str | None = None,
+    resource: str | None = None,
+    due_date: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Add an interview-prep task (due_date YYYY-MM-DD). New tasks start as 'todo'."""
+    con, uid = _ctx()
+    return db.add_item(con, uid, "prep", topic=topic, company=company, resource=resource, due_date=due_date, notes=notes)
+
+
+@mcp.tool()
+def set_prep_status(task_id: int, status: str) -> dict:
+    """Set a prep task status: todo, doing or done."""
+    con, uid = _ctx()
+    return db.update_item(con, uid, "prep", task_id, status=status)
+
+
+@mcp.tool()
+def prep_plan() -> dict:
+    """Open prep tasks, earliest due first, with counts per status."""
+    con, uid = _ctx()
+    return db.prep_plan(con, uid)
+
+
+@mcp.tool()
+def save_resume_version(label: str, content: str | None = None, target_role: str | None = None, notes: str | None = None) -> dict:
+    """Save a resume version under a unique label. If content is omitted, the current stored data
+    is exported to Markdown and snapshotted, so you can compare it with later tailored versions."""
+    con, uid = _ctx()
+    if content is None:
+        content = resume.export_markdown(con, uid)
+    item = db.add_item(con, uid, "resume_versions", label=label, target_role=target_role, content=content, notes=notes)
+    return {k: v for k, v in item.items() if k != "content"} | {"chars": len(content)}
+
+
+@mcp.tool()
+def list_resume_versions() -> list[dict]:
+    """List saved resume versions (without their content)."""
+    con, uid = _ctx()
+    return db.list_resume_versions(con, uid)
+
+
+@mcp.tool()
+def get_resume_version(version_id: int) -> dict:
+    """Return one saved resume version including its content."""
+    con, uid = _ctx()
+    return db.get_item(con, uid, "resume_versions", version_id)
+
+
+@mcp.tool()
+def diff_resume_versions(a_id: int, b_id: int) -> str:
+    """Unified diff between two saved resume versions (a -> b)."""
+    con, uid = _ctx()
+    return db.diff_versions(con, uid, a_id, b_id)
+
+
+@mcp.tool()
+def weekly_review() -> dict:
+    """One-call review: pipeline stats, applications needing follow-up, prep due, contribution
+    statuses and top target companies. Use it to suggest the next three actions."""
+    con, uid = _ctx()
+    return db.weekly_review(con, uid)
+
+
 def main() -> None:
     mcp.run()
 
