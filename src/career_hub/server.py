@@ -455,6 +455,29 @@ def sync_github_contributions(username: str) -> dict:
 
 
 @safe_tool
+def tailor_resume(
+    job_id: int | None = None,
+    description: str | None = None,
+    max_projects: int = 4,
+    public_only: bool = False,
+    save_as: str | None = None,
+) -> dict:
+    """Resume tailored to a saved job (job_id) or pasted description: skills matching the job first,
+    the most relevant projects (max_projects), and a report of why each was chosen.
+
+    Only reorders and selects stored facts; it never adds skills. 'gaps' lists requirements with no
+    stored evidence. save_as stores the Markdown as a resume version under that unique label.
+    """
+    con, uid = _ctx()
+    result = resume.tailor(con, uid, job_id=job_id, description=description, max_projects=max_projects, public_only=public_only)
+    if save_as:
+        role = result["job"] or "pasted description"
+        saved = db.add_item(con, uid, "resume_versions", label=save_as, target_role=role, content=result["markdown"])
+        result["saved_version_id"] = saved["id"]
+    return result
+
+
+@safe_tool
 def list_github_repos(username: str, include_forks: bool = False, include_archived: bool = False, limit: int = 50) -> dict:
     """DRY RUN: list a GitHub user's public repos you could import into the hub. Saves nothing.
 

@@ -28,13 +28,14 @@ Your data goes to `./data/career.db` by default; set `CAREER_HUB_DB=/path/to/car
 2. "Show my career summary" - the context any AI can reuse.
 3. "List my GitHub repos, then import `codive` and `my-api`", then "suggest skills from my repos" - so matching uses what you have actually built.
 4. "Search Greenhouse board `gitlab` for remote Python jobs and rank them against my skills."
-5. "Track an application for job 3 as applied today" / "what needs a follow-up?" / "weekly review".
+5. "Tailor my resume to job 3 and save it as `acme-backend`" - skills and projects are reordered for the job; anything you lack is listed as a gap, never added.
+6. "Track an application for job 3 as applied today" / "what needs a follow-up?" / "weekly review".
 
 ## What it can do
 | Area | Tools |
 |---|---|
 | Context | `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`, `log_contribution`, `list_items`, `update_item`, `delete_item` + `career://` resources |
-| Resume | `import_resume` (PDF/DOCX/TXT/MD), `export_resume`, `save_resume_version`, `diff_resume_versions` |
+| Resume | `import_resume` (PDF/DOCX/TXT/MD), `export_resume`, `tailor_resume` (per-job: matching skills first, most relevant projects, gaps report), `save_resume_version`, `diff_resume_versions` |
 | Jobs | `add_job`, `search_jobs` (Greenhouse, Lever, Ashby, HN "Who is hiring"), `compare_job_to_profile` |
 | Tracking | `track_application`, `list_applications`, `stale_applications`, `pipeline_stats`, `weekly_review` |
 | Prep | `add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan` |

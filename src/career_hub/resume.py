@@ -89,8 +89,12 @@ def export_markdown(
     *,
     focus_skills: list[str] | None = None,
     public_only: bool = False,
+    project_ids: list[int] | None = None,
 ) -> str:
-    """Build a Markdown resume. ``focus_skills`` are listed first so a role can be emphasised."""
+    """Build a Markdown resume. ``focus_skills`` are listed first so a role can be emphasised.
+
+    ``project_ids`` limits the Projects section to those projects, in that order.
+    """
     vis = "public" if public_only else None
     p = db.get_profile(con, user_id)
     out = [f"# {p.get('name') or 'Your Name'}"]
@@ -122,6 +126,9 @@ def export_markdown(
                     out.append(f"- {line.strip().lstrip('-* ')}")
 
     projects = db.list_items(con, user_id, "projects", vis)
+    if project_ids is not None:
+        by_id = {p["id"]: p for p in projects}
+        projects = [by_id[i] for i in project_ids if i in by_id]
     if projects:
         out += ["", "## Projects"]
         for pr in projects:
@@ -138,3 +145,55 @@ def export_markdown(
         for c in contribs:
             out.append(f"- {c['repo']}: {c['title'] or ''} {c['url'] or ''}".rstrip())
     return "\n".join(out) + "\n"
+
+
+def tailor(
+    con: sqlite3.Connection,
+    user_id: int,
+    *,
+    job_id: int | None = None,
+    description: str | None = None,
+    max_projects: int = 4,
+    public_only: bool = False,
+) -> dict:
+    """Resume tailored to one job: matching skills first, the most relevant projects, plus a report.
+
+    It only reorders and selects what is already stored. It never adds a skill or claim you do not
+    have; requirements you lack are returned as ``gaps`` for you to address, not written in.
+    """
+    from . import matching
+
+    cmp = matching.compare(con, user_id, job_id=job_id, description=description)
+    matched = {m["skill"] for m in cmp["matched"]}
+    skills = db.list_items(con, user_id, "skills", "public" if public_only else None)
+    focus = [s["name"] for s in skills if matching.norm(s["name"]) in matched]
+
+    mine = [matching.norm(s["name"]) for s in skills]
+    projects = db.list_items(con, user_id, "projects", "public" if public_only else None)
+    scored = []
+    for p in projects:
+        text = f"{p['name']} {p['description'] or ''} {p['stack'] or ''}"
+        terms = set(matching.detect_terms(text, extra=mine))
+        terms |= {matching.norm(x) for x in (p["stack"] or "").split(",") if x.strip()}
+        hits = sorted(terms & matched)
+        scored.append((len(hits), p, hits))
+    scored.sort(key=lambda t: (-t[0], t[1]["id"]))
+    limit = max(0, int(max_projects))
+    chosen, omitted = scored[:limit], scored[limit:]
+
+    markdown = export_markdown(
+        con, user_id, focus_skills=focus, public_only=public_only, project_ids=[p["id"] for _, p, _ in chosen]
+    )
+    return {
+        "job": cmp["job"],
+        "match_score": cmp["score"],
+        "markdown": markdown,
+        "emphasised_skills": focus,
+        "gaps": cmp["missing"],
+        "projects_shown": [{"name": p["name"], "why": hits or ["no direct skill overlap"]} for _, p, hits in chosen],
+        "projects_left_out": [p["name"] for _, p, _ in omitted],
+        "note": (
+            "Only stored facts were reordered or selected; nothing was added. 'gaps' are requirements "
+            "you have no stored evidence for - add them only if they are true."
+        ),
+    }
