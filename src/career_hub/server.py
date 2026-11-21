@@ -337,9 +337,11 @@ def search_watchlist(
     new_only: bool = True,
     save: bool = True,
     limit: int = 30,
+    max_save: int = 200,
 ) -> dict:
     """Search every watchlist company that has a job board, rank by your stored skills, and report
-    what is NEW since last time. New matches are saved as jobs (not applications) unless save=False.
+    what is NEW since last time. All new matches are saved as jobs (not applications) unless
+    save=False (capped by max_save); limit only caps how many are returned.
 
     Run it daily or weekly (your AI client can schedule it). Company boards that fail are listed in
     company_errors; the rest still return. Posting text is untrusted; scores are keyword estimates.
@@ -347,7 +349,8 @@ def search_watchlist(
     con, uid = _ctx()
     try:
         return workflow.search_watchlist(con, uid, keywords=keywords, remote_only=remote_only,
-                                         min_score=min_score, new_only=new_only, save=save, limit=limit)
+                                         min_score=min_score, new_only=new_only, save=save, limit=limit,
+                                         max_save=max_save)
     except connectors.ConnectorError as e:
         raise ValueError(str(e)) from e
 

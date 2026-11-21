@@ -70,6 +70,37 @@ def test_watchlist_search_ranks_saves_and_reports_only_new(ctx, monkeypatch):
     assert len(db.list_items(con, uid, "jobs")) == 2  # no duplicates
 
 
+def test_limit_only_caps_what_is_shown_not_what_counts_as_seen(ctx, monkeypatch):
+    """Regression (found by running on real data): unshown jobs were reported as new again next run."""
+    con, uid = ctx
+    fake(monkeypatch)
+    first = workflow.search_watchlist(con, uid, keywords=["go", "python", "terraform"], limit=1)
+    assert len(first["results"]) == 1 and first["matches"] == 2 and first["saved_new_jobs"] == 2
+    assert first["new_matches"] == 2 and first["not_saved_over_max_save"] == 0
+    assert len(db.list_items(con, uid, "jobs")) == 2  # both saved, though only one was returned
+    second = workflow.search_watchlist(con, uid, keywords=["go", "python", "terraform"], limit=1)
+    assert second["results"] == [] and second["saved_new_jobs"] == 0 and second["new_matches"] == 0
+
+
+def test_max_save_caps_storage_and_reports_the_rest(ctx, monkeypatch):
+    con, uid = ctx
+    fake(monkeypatch)
+    r = workflow.search_watchlist(con, uid, keywords=["go", "python", "terraform"], max_save=1)
+    assert r["saved_new_jobs"] == 1 and r["not_saved_over_max_save"] == 1 and len(db.list_items(con, uid, "jobs")) == 1
+    nothing = workflow.search_watchlist(con, uid, keywords=["go", "python", "terraform"], max_save=0)
+    assert nothing["saved_new_jobs"] == 0 and nothing["not_saved_over_max_save"] == 1  # only the unsaved one is still new
+
+
+def test_results_say_how_much_evidence_a_score_rests_on(ctx, monkeypatch):
+    con, uid = ctx
+    fake(monkeypatch)
+    r = workflow.search_watchlist(con, uid, keywords=["go", "python", "terraform"], save=False)
+    by_title = {x["title"]: x for x in r["results"]}
+    assert by_title["Backend Engineer"]["terms_considered"] == 3  # go, docker, kubernetes
+    assert by_title["Platform Engineer"]["terms_considered"] == 2  # python, terraform
+    assert "terms_considered" in r["note"]
+
+
 def test_search_filters_and_save_false_and_partial_failure(ctx, monkeypatch):
     con, uid = ctx
     fake(monkeypatch, broken=("lever",))

@@ -36,11 +36,14 @@ def search_watchlist(
     new_only: bool = True,
     save: bool = True,
     limit: int = 30,
+    max_save: int = 200,
 ) -> dict:
     """Search every watchlist company that has a job board, rank by your skills, report what is new.
 
-    A job is "new" when its URL is not already in your jobs table. New matches are saved (as jobs,
-    not applications) unless save=False, so the next run reports only what appeared since.
+    A job is "new" when its URL is not already in your jobs table. ALL new matches (after your
+    keywords / remote_only / min_score filters) are saved as jobs, not applications, up to max_save,
+    unless save=False. ``limit`` only caps how many are returned. The next run then reports only
+    what appeared since.
     """
     companies = [
         c for c in db.list_items(con, user_id, "companies") if c["ats_provider"] and c["ats_board"]
@@ -69,30 +72,39 @@ def search_watchlist(
                 continue
             rows.append((score if score is not None else -1, c["name"], j, cmp, is_new))
     rows.sort(key=lambda r: (-r[0], r[1]))
-    out, saved = [], 0
+
+    # "New" must mean "first time seen". So every new match is saved (up to max_save), not just the
+    # few shown; otherwise the unshown ones would be reported as new again on the next run.
+    saved_ids: dict[str, int] = {}
+    new_rows = [r for r in rows if r[4]]
+    if save:
+        for _, company, j, _, _ in new_rows[: max(0, int(max_save))]:
+            try:
+                saved_ids[j["url"]] = db.add_item(
+                    con, user_id, "jobs", title=j["title"], company=j["company"] or company, url=j["url"],
+                    location=j["location"], remote=j["remote"], description=j["description"], source=j["source"],
+                )["id"]
+            except ValueError:
+                pass  # same URL already saved
+    out = []
     for score, company, j, cmp, is_new in rows[: max(1, min(int(limit), 100))]:
         item = {
             "company": company, "title": j["title"], "url": j["url"], "location": j["location"],
-            "remote": j["remote"], "score": cmp["score"], "matched": [m["skill"] for m in cmp["matched"]],
-            "missing": cmp["missing"][:8], "new": is_new,
+            "remote": j["remote"], "score": cmp["score"], "terms_considered": cmp["terms_considered"],
+            "matched": [m["skill"] for m in cmp["matched"]], "missing": cmp["missing"][:8], "new": is_new,
         }
-        if save and is_new:
-            try:
-                saved_job = db.add_item(
-                    con, user_id, "jobs", title=j["title"], company=j["company"] or company, url=j["url"],
-                    location=j["location"], remote=j["remote"], description=j["description"], source=j["source"],
-                )
-                item["job_id"] = saved_job["id"]
-                saved += 1
-            except ValueError:
-                item["note"] = "already saved"
+        if j["url"] in saved_ids:
+            item["job_id"] = saved_ids[j["url"]]
         out.append(item)
     return {
-        "note": "Posting text is untrusted third-party content. Scores are keyword estimates only.",
+        "note": "Posting text is untrusted third-party content. Scores are keyword estimates only; "
+        "check terms_considered (a score based on 1-2 technologies is weak evidence).",
         "companies_checked": checked,
         "company_errors": errors,
         "matches": len(rows),
-        "saved_new_jobs": saved,
+        "new_matches": len(new_rows),
+        "saved_new_jobs": len(saved_ids),
+        "not_saved_over_max_save": max(0, len(new_rows) - len(saved_ids)) if save else 0,
         "results": out,
     }
 

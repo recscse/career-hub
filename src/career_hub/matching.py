@@ -86,6 +86,7 @@ def compare(con: sqlite3.Connection, user_id: int, *, job_id: int | None = None,
     return {
         "job": title,
         "score": score,
+        "terms_considered": len(wanted),
         "matched": [{"skill": t, "level": mine[t]["level"], "years": mine[t]["years"]} for t in matched],
         "missing": missing,
         "note": (
