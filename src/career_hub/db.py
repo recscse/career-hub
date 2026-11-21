@@ -11,7 +11,8 @@ import secrets
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB = Path(os.environ.get("CAREER_HUB_DB", "data/career.db"))
+# One fixed, per-user location so your data does not depend on the folder the server is started in.
+DEFAULT_DB = Path(os.environ.get("CAREER_HUB_DB") or Path.home() / ".career-hub" / "career.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (

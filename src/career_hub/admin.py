@@ -19,7 +19,7 @@ from . import db
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="career-hub-admin", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--db", help="database path (default: $CAREER_HUB_DB or data/career.db)")
+    p.add_argument("--db", help="database path (default: $CAREER_HUB_DB or ~/.career-hub/career.db)")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list-users")
     c = sub.add_parser("create-user")

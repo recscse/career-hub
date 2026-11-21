@@ -20,7 +20,9 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
     # Any other MCP client: run this command over stdio
     uvx career-context-hub
 
-Your data goes to `./data/career.db` by default; set `CAREER_HUB_DB=/path/to/career.db` to choose.
+Your data is stored in one file, `~/.career-hub/career.db` (created automatically), no matter which
+folder you start your editor in. Set `CAREER_HUB_DB=/path/to/career.db` only if you want it elsewhere.
+That is the only setting; everything else works out of the box.
 
 ## First steps (ask your AI)
 1. "Import my resume from `~/resume.pdf`" - it reads the file, proposes what to save, and saves it
