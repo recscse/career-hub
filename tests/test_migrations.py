@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+from conftest import NEEDS_DROP_COLUMN
 
 from career_hub import db
 
@@ -19,12 +20,14 @@ def test_fresh_database_is_stamped_with_current_version(tmp_path):
     assert version(p) == db.schema_version()
 
 
-def test_database_created_before_versioning_is_adopted_without_data_loss(tmp_path):
+@NEEDS_DROP_COLUMN
+def test_database_created_before_versioning_is_adopted_without_data_loss(tmp_path, downgrade):
     p = tmp_path / "old.db"
     con = db.connect(p)
     uid = db.ensure_default_user(con)
     db.add_item(con, uid, "skills", name="Python")
-    con.execute("PRAGMA user_version = 0")  # what a pre-versioning install looks like
+    downgrade(con, 1)
+    con.execute("PRAGMA user_version = 0")  # a pre-versioning install: old schema, no version stamp
     con.commit()
     con.close()
     con = db.connect(p)
@@ -64,6 +67,27 @@ def test_failed_migration_rolls_back_and_keeps_old_version(tmp_path, monkeypatch
     assert version(p) == base
     con = sqlite3.connect(str(p))
     assert "ok" not in [r[1] for r in con.execute("PRAGMA table_info(skills)")]  # partial change undone
+
+
+@NEEDS_DROP_COLUMN
+def test_v2_database_gains_job_board_and_resume_columns_keeping_data(tmp_path, downgrade):
+    p = tmp_path / "v2.db"
+    con = db.connect(p)
+    uid = db.ensure_default_user(con)
+    db.add_item(con, uid, "companies", name="Grafana", priority=5)
+    job = db.add_item(con, uid, "jobs", title="Dev")
+    db.track_application(con, uid, job["id"], status="applied")
+    downgrade(con, 2)
+    assert "ats_provider" not in [r[1] for r in con.execute("PRAGMA table_info(companies)")]
+    con.close()
+
+    con = db.connect(p)
+    assert version(p) == db.schema_version()
+    assert {"ats_provider", "ats_board"} <= {r[1] for r in con.execute("PRAGMA table_info(companies)")}
+    assert db.list_items(con, uid, "companies")[0]["name"] == "Grafana"
+    assert db.list_applications(con, uid)[0]["status"] == "applied"
+    v = db.add_item(con, uid, "resume_versions", label="x", content="c")
+    assert db.track_application(con, uid, job["id"], resume_version_id=v["id"])["resume_version_id"] == v["id"]
 
 
 def test_newer_database_is_refused(tmp_path):

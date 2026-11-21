@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import secrets
 import sqlite3
 from pathlib import Path
@@ -60,14 +61,14 @@ CREATE TABLE IF NOT EXISTS applications (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
     job_id INTEGER NOT NULL REFERENCES jobs(id),
     status TEXT NOT NULL DEFAULT 'saved',
-    applied_date TEXT, follow_up_date TEXT, notes TEXT,
+    applied_date TEXT, follow_up_date TEXT, notes TEXT, resume_version_id INTEGER,
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, job_id)
 );
 CREATE TABLE IF NOT EXISTS companies (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
     name TEXT NOT NULL, website TEXT, remote_policy TEXT, pay_notes TEXT,
-    repo_url TEXT, priority INTEGER, notes TEXT,
+    repo_url TEXT, priority INTEGER, notes TEXT, ats_provider TEXT, ats_board TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
     UNIQUE(user_id, name)
 );
@@ -112,7 +113,11 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "contributions": ("repo", "title", "url", "status", "visibility"),
     "jobs": ("title", "company", "url", "location", "remote", "description", "required_skills", "source", "visibility"),
 }
-COLUMNS["companies"] = ("name", "website", "remote_policy", "pay_notes", "repo_url", "priority", "notes", "visibility")
+COLUMNS["companies"] = (
+    "name", "website", "remote_policy", "pay_notes", "repo_url", "priority", "notes",
+    "ats_provider", "ats_board", "visibility",
+)
+ATS_PROVIDERS = ("greenhouse", "lever", "ashby")
 COLUMNS["prep"] = ("topic", "company", "resource", "status", "due_date", "notes")
 COLUMNS["resume_versions"] = ("label", "target_role", "content", "notes")
 COLUMNS["repos"] = ("summary", "visibility")  # the rest is owned by the GitHub sync
@@ -127,6 +132,10 @@ VISIBILITY = ("private", "public")
 # Never edit or reorder an entry that has been released.
 MIGRATIONS: list[str] = [
     REPOS_DDL,  # v2: GitHub repos synced from a user's profile
+    # v3: job board per target company (search the whole watchlist), resume used per application
+    "ALTER TABLE companies ADD COLUMN ats_provider TEXT;\n"
+    "ALTER TABLE companies ADD COLUMN ats_board TEXT;\n"
+    "ALTER TABLE applications ADD COLUMN resume_version_id INTEGER;",
 ]
 
 
@@ -200,8 +209,15 @@ def ensure_default_user(con: sqlite3.Connection, name: str = "me") -> int:
     return int(cur.lastrowid)
 
 
+def _table(table: str) -> str:
+    """The ONLY way a table name from a caller may reach SQL: it must be an allow-listed table."""
+    if not isinstance(table, str) or table not in COLUMNS:
+        raise ValueError(f"unknown table {table!r}. Choose from {list(COLUMNS)}")
+    return table
+
+
 def _check(table: str, fields: dict) -> dict:
-    allowed = COLUMNS[table]
+    allowed = COLUMNS[_table(table)]
     unknown = [k for k in fields if k not in allowed]
     if unknown:
         raise ValueError(f"unknown fields for {table}: {unknown}. Allowed: {list(allowed)}")
@@ -211,6 +227,12 @@ def _check(table: str, fields: dict) -> dict:
         raise ValueError(f"prep status must be one of {PREP_STATUSES}")
     if table == "companies" and fields.get("priority") is not None and fields["priority"] not in range(1, 6):
         raise ValueError("priority must be an integer from 1 (low) to 5 (high)")
+    if table == "companies" and (fields.get("ats_provider") or fields.get("ats_board")):
+        if fields.get("ats_provider") not in ATS_PROVIDERS:
+            raise ValueError(f"ats_provider must be one of {ATS_PROVIDERS} when a board is set")
+        board = fields.get("ats_board") or ""
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", board):
+            raise ValueError("ats_board must be the company's job-board name (letters, digits, '.', '_' or '-')")
     return {k: v for k, v in fields.items()}
 
 
@@ -236,7 +258,7 @@ def add_item(con: sqlite3.Connection, user_id: int, table: str, **fields) -> dic
     marks = ", ".join("?" for _ in cols)
     try:
         cur = con.execute(
-            f"INSERT INTO {table}({', '.join(cols)}) VALUES ({marks})", (user_id, *fields.values())
+            f"INSERT INTO {_table(table)}({', '.join(cols)}) VALUES ({marks})", (user_id, *fields.values())
         )
     except sqlite3.IntegrityError as e:
         raise ValueError(f"could not add to {table}: {e}") from e
@@ -245,16 +267,14 @@ def add_item(con: sqlite3.Connection, user_id: int, table: str, **fields) -> dic
 
 
 def get_item(con: sqlite3.Connection, user_id: int, table: str, item_id: int) -> dict:
-    row = con.execute(f"SELECT * FROM {table} WHERE id = ? AND user_id = ?", (item_id, user_id)).fetchone()
+    row = con.execute(f"SELECT * FROM {_table(table)} WHERE id = ? AND user_id = ?", (item_id, user_id)).fetchone()
     if not row:
         raise ValueError(f"{table} item {item_id} not found")
     return dict(row)
 
 
 def list_items(con: sqlite3.Connection, user_id: int, table: str, visibility: str | None = None) -> list[dict]:
-    if table not in COLUMNS:
-        raise ValueError(f"unknown table {table!r}. Choose from {list(COLUMNS)}")
-    sql, args = f"SELECT * FROM {table} WHERE user_id = ?", [user_id]
+    sql, args = f"SELECT * FROM {_table(table)} WHERE user_id = ?", [user_id]
     if visibility:
         sql += " AND visibility = ?"
         args.append(visibility)
@@ -267,14 +287,14 @@ def update_item(con: sqlite3.Connection, user_id: int, table: str, item_id: int,
         raise ValueError("nothing to update")
     get_item(con, user_id, table, item_id)  # ownership + existence check
     sets = ", ".join(f"{k} = ?" for k in fields)
-    con.execute(f"UPDATE {table} SET {sets} WHERE id = ? AND user_id = ?", (*fields.values(), item_id, user_id))
+    con.execute(f"UPDATE {_table(table)} SET {sets} WHERE id = ? AND user_id = ?", (*fields.values(), item_id, user_id))
     con.commit()
     return get_item(con, user_id, table, item_id)
 
 
 def delete_item(con: sqlite3.Connection, user_id: int, table: str, item_id: int) -> None:
     get_item(con, user_id, table, item_id)
-    con.execute(f"DELETE FROM {table} WHERE id = ? AND user_id = ?", (item_id, user_id))
+    con.execute(f"DELETE FROM {_table(table)} WHERE id = ? AND user_id = ?", (item_id, user_id))
     con.commit()
 
 
@@ -318,7 +338,7 @@ def summary(con: sqlite3.Connection, user_id: int) -> str:
 
 # ---- applications -------------------------------------------------------------
 
-APPLICATION_FIELDS = ("status", "applied_date", "follow_up_date", "notes")
+APPLICATION_FIELDS = ("status", "applied_date", "follow_up_date", "notes", "resume_version_id")
 
 
 def track_application(con: sqlite3.Connection, user_id: int, job_id: int, **fields) -> dict:
@@ -329,6 +349,8 @@ def track_application(con: sqlite3.Connection, user_id: int, job_id: int, **fiel
         raise ValueError(f"unknown fields: {unknown}. Allowed: {list(APPLICATION_FIELDS)}")
     if "status" in fields and fields["status"] not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
+    if fields.get("resume_version_id") is not None:
+        get_item(con, user_id, "resume_versions", fields["resume_version_id"])  # must be your own version
     fields = {k: v for k, v in fields.items() if v is not None}
     con.execute("INSERT OR IGNORE INTO applications(user_id, job_id) VALUES (?, ?)", (user_id, job_id))
     sets = ", ".join([f"{k} = ?" for k in fields] + ["updated_at = datetime('now')"])
@@ -342,7 +364,7 @@ def list_applications(
 ) -> list[dict]:
     sql = (
         "SELECT a.id, a.job_id, j.title, j.company, j.url, a.status, a.applied_date, "
-        "a.follow_up_date, a.notes, a.updated_at FROM applications a "
+        "a.follow_up_date, a.notes, a.resume_version_id, a.updated_at FROM applications a "
         "JOIN jobs j ON j.id = a.job_id WHERE a.user_id = ?"
     )
     args: list = [user_id]

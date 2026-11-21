@@ -52,3 +52,4 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# tests/test_live.py hits real services and only runs with RUN_LIVE=1

@@ -40,10 +40,29 @@ That is the only setting; everything else works out of the box.
 | Context | `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`, `log_contribution`, `list_items`, `update_item`, `delete_item` + `career://` resources |
 | Resume | `import_resume` (PDF/DOCX/TXT/MD), `export_resume`, `tailor_resume` (per-job: matching skills first, most relevant projects, gaps report), `save_resume_version`, `diff_resume_versions` |
 | Jobs | `add_job`, `search_jobs` (Greenhouse, Lever, Ashby, HN "Who is hiring"), `compare_job_to_profile` |
+| Workflow | `search_watchlist` (all your target companies, new jobs only), `prepare_application`, `mark_applied`, `interview_brief` |
 | Tracking | `track_application`, `list_applications`, `stale_applications`, `pipeline_stats`, `weekly_review` |
 | Prep | `add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan` |
 | Portfolio | `build_portfolio` (static `index.html` + `data.json` + `resume.md` from items marked **public**), `portfolio_data` |
 | GitHub | `list_github_repos` (dry run), `import_github_repos` (only the repos you pick: languages, README, your commits), `set_repo_summary`, `suggest_skills_from_repos`, `sync_github_contributions` (your public PRs to other repos) |
+
+## The job-search workflow
+```
+find  ->  shortlist  ->  prepare  ->  apply (you)  ->  follow up  ->  interview
+```
+1. **Find.** Add target companies with their job board (`add_company ... ats_provider=greenhouse ats_board=gitlab`),
+   then run `search_watchlist` whenever you like (your AI client can schedule it). It ranks by *your* stored
+   skills and saves only jobs it has not seen before, so each run shows what is new.
+   For any other site (LinkedIn, company pages, newsletters) your AI client reads the posting and calls `add_job`;
+   it enters the same pipeline. The hub does not scrape sites that forbid it.
+2. **Prepare.** `prepare_application` saves a resume tailored to the job (never adding skills you lack),
+   lists the gaps, and gives you the apply link.
+3. **Apply.** You submit on the employer's site. The hub does not apply for you. Then `mark_applied` records
+   the date and sets a follow-up date.
+4. **Follow up.** `stale_applications` / `weekly_review` show what needs a nudge.
+5. **Interview.** When you are shortlisted, `interview_brief` returns the full stored job description, your
+   evidence, the projects to talk about and your gaps (optionally as prep tasks). Your AI writes likely
+   questions from the description and answers only from your stored facts.
 
 ## Privacy model
 Everything you add is **private by default**. The portfolio contains only items you mark `public`. Profile `name`, `headline`, `summary`, `location` and `links` are published when you build one (leave blank what you do not want shown); `preferences` and skill `evidence` are never published. `build_portfolio` refuses to overwrite files it did not generate.

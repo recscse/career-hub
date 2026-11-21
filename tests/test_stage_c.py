@@ -87,6 +87,12 @@ def test_weekly_review(ctx):
 def _text(result):
     return "".join(c.text for c in result.content if getattr(c, "text", None))
 
+def _jl(result):
+    """Parse a tool result as JSON, failing with the tool's own error text if the call errored."""
+    assert not result.is_error, f"tool call failed: {_text(result)}"
+    return json.loads(_text(result))
+
+
 
 @pytest.mark.asyncio
 async def test_stage_c_tools_over_mcp(tmp_path):
@@ -98,18 +104,18 @@ async def test_stage_c_tools_over_mcp(tmp_path):
         await s.call_tool("set_profile", {"name": "Ada"})
         await s.call_tool("add_skill", {"name": "Python"})
         await s.call_tool("add_company", {"name": "PostHog", "priority": 5, "remote_policy": "remote-first"})
-        t = json.loads(_text(await s.call_tool("add_prep_task", {"topic": "SQL", "due_date": "2026-12-01"})))
-        done = json.loads(_text(await s.call_tool("set_prep_status", {"task_id": t["id"], "status": "done"})))
+        t = _jl(await s.call_tool("add_prep_task", {"topic": "SQL", "due_date": "2026-12-01"}))
+        done = _jl(await s.call_tool("set_prep_status", {"task_id": t["id"], "status": "done"}))
         assert done["status"] == "done"
 
-        v = json.loads(_text(await s.call_tool("save_resume_version", {"label": "base"})))  # snapshot of stored data
+        v = _jl(await s.call_tool("save_resume_version", {"label": "base"}))  # snapshot of stored data
         assert v["chars"] > 0 and "content" not in v
         await s.call_tool("add_skill", {"name": "Go"})
-        v2 = json.loads(_text(await s.call_tool("save_resume_version", {"label": "v2"})))
+        v2 = _jl(await s.call_tool("save_resume_version", {"label": "v2"}))
         diff = _text(await s.call_tool("diff_resume_versions", {"a_id": v["id"], "b_id": v2["id"]}))
         assert "Go" in diff
 
-        review = json.loads(_text(await s.call_tool("weekly_review", {})))
+        review = _jl(await s.call_tool("weekly_review", {}))
         assert review["top_target_companies"][0]["name"] == "PostHog"
         bad = await s.call_tool("set_prep_status", {"task_id": t["id"], "status": "nope"})
         assert bad.is_error

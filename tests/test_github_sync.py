@@ -3,6 +3,7 @@ import json
 import sqlite3
 
 import pytest
+from conftest import NEEDS_DROP_COLUMN
 
 from career_hub import connectors, db, github_sync, matching, server
 
@@ -189,17 +190,17 @@ def test_invalid_names_are_rejected_before_any_request():
         connectors.fetch_repo_languages("a/../b")
 
 
-def test_v1_database_upgrades_to_v2_keeping_data(tmp_path):
+@NEEDS_DROP_COLUMN
+def test_v1_database_upgrades_to_current_keeping_data(tmp_path, downgrade):
     p = tmp_path / "v1.db"
     con = db.connect(p)
     uid = db.ensure_default_user(con)
     db.add_item(con, uid, "skills", name="Python")
-    con.execute("DROP TABLE repos")
-    con.execute("PRAGMA user_version = 1")
-    con.commit()
+    downgrade(con, 1)
+    assert con.execute("SELECT 1 FROM sqlite_master WHERE name = 'repos'").fetchone() is None
     con.close()
     con = db.connect(p)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == db.schema_version() == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == db.schema_version()
     assert db.list_items(con, uid, "skills")[0]["name"] == "Python"
     assert db.upsert_repo(con, uid, "me/x")["full_name"] == "me/x"
 

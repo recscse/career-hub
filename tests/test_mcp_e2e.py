@@ -10,6 +10,12 @@ from mcp.client.stdio import stdio_client
 def _text(result):
     return "".join(c.text for c in result.content if getattr(c, "text", None))
 
+def _jl(result):
+    """Parse a tool result as JSON, failing with the tool's own error text if the call errored."""
+    assert not result.is_error, f"tool call failed: {_text(result)}"
+    return json.loads(_text(result))
+
+
 
 @pytest.mark.asyncio
 async def test_agent_flow(tmp_path):
@@ -26,7 +32,7 @@ async def test_agent_flow(tmp_path):
         await s.call_tool("set_profile", {"name": "Ada", "headline": "Backend dev"})
         await s.call_tool("add_skill", {"name": "Python", "level": "advanced", "years": 5})
         c = await s.call_tool("log_contribution", {"repo": "aden-hive/hive", "url": "https://x/7533", "status": "claimed"})
-        cid = json.loads(_text(c))["id"]
+        cid = _jl(c)["id"]
         await s.call_tool("update_item", {"table": "contributions", "item_id": cid, "fields": {"status": "merged"}})
 
         res = await s.read_resource("career://summary")
@@ -66,14 +72,14 @@ async def test_job_search_flow(tmp_path):
     async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
         await s.call_tool("add_skill", {"name": "Python", "years": 5})
-        job = json.loads(_text(await s.call_tool("add_job", {
+        job = _jl(await s.call_tool("add_job", {
             "title": "Backend Engineer", "company": "Acme", "url": "https://acme/1",
-            "description": "Python and Kubernetes required"})))
-        cmp = json.loads(_text(await s.call_tool("compare_job_to_profile", {"job_id": job["id"]})))
+            "description": "Python and Kubernetes required"}))
+        cmp = _jl(await s.call_tool("compare_job_to_profile", {"job_id": job["id"]}))
         assert cmp["score"] == 50 and cmp["missing"] == ["kubernetes"]
         await s.call_tool("track_application", {"job_id": job["id"], "status": "applied", "applied_date": "2026-11-18"})
         assert "Backend Engineer" in _text(await s.call_tool("list_applications", {"status": "applied"}))
-        stats = json.loads(_text(await s.call_tool("pipeline_stats", {})))
+        stats = _jl(await s.call_tool("pipeline_stats", {}))
         assert stats["by_status"]["applied"] == 1
         bad = await s.call_tool("track_application", {"job_id": job["id"], "status": "nope"})
         assert bad.is_error
@@ -89,6 +95,6 @@ async def test_validation_messages_reach_the_ai_client(tmp_path):
         await s.initialize()
         bad = await s.call_tool("update_item", {"table": "skills", "item_id": 1, "fields": {"bogus": 1}})
         assert bad.is_error and "unknown fields" in _text(bad) and "Allowed" in _text(bad)
-        job = json.loads(_text(await s.call_tool("add_job", {"title": "Dev"})))
+        job = _jl(await s.call_tool("add_job", {"title": "Dev"}))
         bad = await s.call_tool("track_application", {"job_id": job["id"], "status": "nope"})
         assert bad.is_error and "status must be one of" in _text(bad)

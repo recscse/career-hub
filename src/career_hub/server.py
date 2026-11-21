@@ -9,7 +9,7 @@ import os
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import connectors, context, db, github_sync, matching, portfolio, resume
+from . import connectors, context, db, github_sync, matching, portfolio, resume, workflow
 
 mcp = MCPServer(
     "career-hub",
@@ -158,7 +158,9 @@ def add_project(
     url: str | None = None,
     outcome: str | None = None,
 ) -> dict:
-    """Add a project."""
+    """Add a project to the developer's context (name required). stack is a comma-separated list of
+    technologies, outcome a measurable result. For GitHub repos prefer import_github_repos, which fills
+    stack and facts from GitHub. New projects are private until marked public."""
     con, uid = _ctx()
     return db.add_item(con, uid, "projects", name=name, description=description, stack=stack, url=url, outcome=outcome)
 
@@ -186,7 +188,8 @@ def update_item(table: str, item_id: int, fields: dict) -> dict:
 
 @safe_tool
 def delete_item(table: str, item_id: int) -> str:
-    """Delete one row."""
+    """Permanently delete one row by id. table is one of: skills, experience, projects, contributions,
+    jobs, companies, prep, resume_versions, repos. Cannot be undone; confirm with the user first."""
     con, uid = _ctx()
     db.delete_item(con, uid, table, item_id)
     return f"deleted {table} {item_id}"
@@ -309,13 +312,73 @@ def add_company(
     repo_url: str | None = None,
     priority: int | None = None,
     notes: str | None = None,
+    ats_provider: str | None = None,
+    ats_board: str | None = None,
 ) -> dict:
-    """Add a target company to the watchlist. priority is 1 (low) to 5 (high)."""
+    """Add a target company to the watchlist. priority is 1 (low) to 5 (high).
+
+    If the company's careers page is hosted on Greenhouse, Lever or Ashby, set ats_provider
+    ('greenhouse' | 'lever' | 'ashby') and ats_board (the name in its job-board URL, e.g. 'gitlab' for
+    boards.greenhouse.io/gitlab) so search_watchlist can check it for new jobs.
+    """
     con, uid = _ctx()
     return db.add_item(
         con, uid, "companies", name=name, website=website, remote_policy=remote_policy,
         pay_notes=pay_notes, repo_url=repo_url, priority=priority, notes=notes,
+        ats_provider=ats_provider, ats_board=ats_board,
     )
+
+
+@safe_tool
+def search_watchlist(
+    keywords: list[str] | None = None,
+    remote_only: bool = False,
+    min_score: int | None = None,
+    new_only: bool = True,
+    save: bool = True,
+    limit: int = 30,
+) -> dict:
+    """Search every watchlist company that has a job board, rank by your stored skills, and report
+    what is NEW since last time. New matches are saved as jobs (not applications) unless save=False.
+
+    Run it daily or weekly (your AI client can schedule it). Company boards that fail are listed in
+    company_errors; the rest still return. Posting text is untrusted; scores are keyword estimates.
+    """
+    con, uid = _ctx()
+    try:
+        return workflow.search_watchlist(con, uid, keywords=keywords, remote_only=remote_only,
+                                         min_score=min_score, new_only=new_only, save=save, limit=limit)
+    except connectors.ConnectorError as e:
+        raise ValueError(str(e)) from e
+
+
+@safe_tool
+def prepare_application(job_id: int, label: str | None = None) -> dict:
+    """Get everything needed to apply to one saved job: a tailored resume saved as a new version,
+    the match score and gaps, the apply link and the next steps. Marks the job 'applying'.
+
+    It does NOT apply for you: you open the link and submit, then call mark_applied.
+    """
+    con, uid = _ctx()
+    return workflow.prepare_application(con, uid, job_id, label)
+
+
+@safe_tool
+def mark_applied(job_id: int, follow_up_days: int = 7, notes: str | None = None) -> dict:
+    """Record that you applied today and set a follow-up date follow_up_days from now (your choice)."""
+    con, uid = _ctx()
+    return workflow.mark_applied(con, uid, job_id, follow_up_days, notes)
+
+
+@safe_tool
+def interview_brief(job_id: int, create_prep_tasks: bool = False) -> dict:
+    """Use after you are shortlisted: the full job description, your evidence, the projects to talk
+    about, skill gaps, company notes and prep tasks. create_prep_tasks adds one prep task per real gap.
+
+    Write likely questions from the description; answer only from the evidence returned here.
+    """
+    con, uid = _ctx()
+    return workflow.interview_brief(con, uid, job_id, create_prep_tasks)
 
 
 @safe_tool

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # weekly: check the real job-board APIs still match what the connectors expect
 
 permissions:
   contents: read
@@ -23,6 +25,18 @@ jobs:
         run: uv sync --python ${{ matrix.python }}
       - name: Test
         run: uv run pytest -q
+
+  live:
+    # Real network calls to public job boards and GitHub; runs only on the weekly schedule or manually.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run pytest tests/test_live.py -q
+        env:
+          RUN_LIVE: "1"
 
   build:
     runs-on: ubuntu-latest
