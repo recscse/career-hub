@@ -56,3 +56,24 @@ async def test_import_and_export_tools(tmp_path):
         await s.call_tool("add_skill", {"name": "Python", "years": 5})
         md = _text(await s.call_tool("export_resume", {"focus_skills": ["Python"]}))
         assert "## Skills" in md and "Python" in md
+
+
+@pytest.mark.asyncio
+async def test_job_search_flow(tmp_path):
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "career_hub.server"], env={"CAREER_HUB_DB": str(tmp_path / "c.db")}
+    )
+    async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
+        await s.initialize()
+        await s.call_tool("add_skill", {"name": "Python", "years": 5})
+        job = json.loads(_text(await s.call_tool("add_job", {
+            "title": "Backend Engineer", "company": "Acme", "url": "https://acme/1",
+            "description": "Python and Kubernetes required"})))
+        cmp = json.loads(_text(await s.call_tool("compare_job_to_profile", {"job_id": job["id"]})))
+        assert cmp["score"] == 50 and cmp["missing"] == ["kubernetes"]
+        await s.call_tool("track_application", {"job_id": job["id"], "status": "applied", "applied_date": "2026-11-18"})
+        assert "Backend Engineer" in _text(await s.call_tool("list_applications", {"status": "applied"}))
+        stats = json.loads(_text(await s.call_tool("pipeline_stats", {})))
+        assert stats["by_status"]["applied"] == 1
+        bad = await s.call_tool("track_application", {"job_id": job["id"], "status": "nope"})
+        assert bad.is_error

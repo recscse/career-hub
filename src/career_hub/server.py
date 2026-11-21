@@ -6,7 +6,7 @@ import json
 
 from mcp.server.mcpserver import MCPServer
 
-from . import db, resume
+from . import db, matching, resume
 
 mcp = MCPServer(
     "career-hub",
@@ -179,6 +179,74 @@ def export_resume(focus_skills: list[str] | None = None, public_only: bool = Fal
     """
     con, uid = _ctx()
     return resume.export_markdown(con, uid, focus_skills=focus_skills, public_only=public_only)
+
+
+@mcp.tool()
+def add_job(
+    title: str,
+    company: str | None = None,
+    url: str | None = None,
+    location: str | None = None,
+    remote: str | None = None,
+    description: str | None = None,
+    required_skills: str | None = None,
+    source: str | None = None,
+) -> dict:
+    """Save a job posting. Paste the full description for better matching. required_skills is a
+    comma-separated list that extends skills detected from the description."""
+    con, uid = _ctx()
+    return db.add_item(
+        con, uid, "jobs", title=title, company=company, url=url, location=location, remote=remote,
+        description=description, required_skills=required_skills, source=source,
+    )
+
+
+@mcp.tool()
+def compare_job_to_profile(job_id: int | None = None, description: str | None = None) -> dict:
+    """Score a saved job (job_id) or pasted text (description) against the stored skills.
+
+    Returns matched skills, missing skills and a 0-100 keyword score. It is a rough estimate of
+    named technologies only; add your own judgement about seniority and fit.
+    """
+    con, uid = _ctx()
+    return matching.compare(con, uid, job_id=job_id, description=description)
+
+
+@mcp.tool()
+def track_application(
+    job_id: int,
+    status: str | None = None,
+    applied_date: str | None = None,
+    follow_up_date: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Create or update the application for a saved job. status: saved, applying, applied,
+    interview, offer, rejected, ghosted or withdrawn. Dates are YYYY-MM-DD."""
+    con, uid = _ctx()
+    return db.track_application(
+        con, uid, job_id, status=status, applied_date=applied_date, follow_up_date=follow_up_date, notes=notes
+    )
+
+
+@mcp.tool()
+def list_applications(status: str | None = None) -> list[dict]:
+    """List applications with their job, newest update first. Optionally filter by status."""
+    con, uid = _ctx()
+    return db.list_applications(con, uid, status=status)
+
+
+@mcp.tool()
+def stale_applications(days: int = 7) -> list[dict]:
+    """Applied/interview applications with no update for `days` days, or whose follow-up date has come."""
+    con, uid = _ctx()
+    return db.stale_applications(con, uid, days)
+
+
+@mcp.tool()
+def pipeline_stats() -> dict:
+    """Counts of applications per status and the interview rate."""
+    con, uid = _ctx()
+    return db.funnel(con, uid)
 
 
 def main() -> None:

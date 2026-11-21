@@ -18,9 +18,11 @@ Resources: `career://summary` (give this to an AI as context), `career://profile
 Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`,
 `log_contribution`, `list_items`, `update_item`, `delete_item`,
 `import_resume(path)` (PDF/DOCX/TXT/MD -> text + instructions; the agent saves the data),
-`export_resume(focus_skills, public_only)` (Markdown resume).
+`export_resume(focus_skills, public_only)` (Markdown resume),
+`add_job`, `compare_job_to_profile` (keyword skill match: matched/missing/score), `track_application`,
+`list_applications`, `stale_applications`, `pipeline_stats`.
 
 Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
 
 ## Roadmap
-Next: jobs, applications, prep, `compare_job_to_profile`, resume versions, HTTP transport + token auth, Docker.
+Next: prep tracker, company watchlist, resume versions, job-board connectors, HTTP transport + token auth, Docker.

@@ -47,6 +47,22 @@ CREATE TABLE IF NOT EXISTS contributions (
     visibility TEXT NOT NULL DEFAULT 'private',
     UNIQUE(user_id, url)
 );
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    title TEXT NOT NULL, company TEXT, url TEXT, location TEXT, remote TEXT,
+    description TEXT, required_skills TEXT, source TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, url)
+);
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    job_id INTEGER NOT NULL REFERENCES jobs(id),
+    status TEXT NOT NULL DEFAULT 'saved',
+    applied_date TEXT, follow_up_date TEXT, notes TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, job_id)
+);
 """
 
 CREATE_INDEXES = """
@@ -62,7 +78,9 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "experience": ("role", "company", "start_date", "end_date", "summary", "achievements", "visibility"),
     "projects": ("name", "description", "stack", "url", "outcome", "visibility"),
     "contributions": ("repo", "title", "url", "status", "visibility"),
+    "jobs": ("title", "company", "url", "location", "remote", "description", "required_skills", "source", "visibility"),
 }
+STATUSES = ("saved", "applying", "applied", "interview", "offer", "rejected", "ghosted", "withdrawn")
 PROFILE_COLUMNS = ("name", "headline", "summary", "location", "links", "preferences")
 VISIBILITY = ("private", "public")
 
@@ -216,3 +234,70 @@ def summary(con: sqlite3.Connection, user_id: int) -> str:
         for c in contribs:
             out.append(f"- {c['repo']}: {c['title'] or ''} ({c['status'] or '?'}) {c['url'] or ''}".rstrip())
     return "\n".join(out)
+
+
+# ---- applications -------------------------------------------------------------
+
+APPLICATION_FIELDS = ("status", "applied_date", "follow_up_date", "notes")
+
+
+def track_application(con: sqlite3.Connection, user_id: int, job_id: int, **fields) -> dict:
+    """Create or update the application for a job (one per job). Returns the row with its job."""
+    get_item(con, user_id, "jobs", job_id)  # ownership + existence
+    unknown = [k for k in fields if k not in APPLICATION_FIELDS]
+    if unknown:
+        raise ValueError(f"unknown fields: {unknown}. Allowed: {list(APPLICATION_FIELDS)}")
+    if "status" in fields and fields["status"] not in STATUSES:
+        raise ValueError(f"status must be one of {STATUSES}")
+    fields = {k: v for k, v in fields.items() if v is not None}
+    con.execute("INSERT OR IGNORE INTO applications(user_id, job_id) VALUES (?, ?)", (user_id, job_id))
+    sets = ", ".join([f"{k} = ?" for k in fields] + ["updated_at = datetime('now')"])
+    con.execute(f"UPDATE applications SET {sets} WHERE user_id = ? AND job_id = ?", (*fields.values(), user_id, job_id))
+    con.commit()
+    return list_applications(con, user_id, job_id=job_id)[0]
+
+
+def list_applications(
+    con: sqlite3.Connection, user_id: int, status: str | None = None, job_id: int | None = None
+) -> list[dict]:
+    sql = (
+        "SELECT a.id, a.job_id, j.title, j.company, j.url, a.status, a.applied_date, "
+        "a.follow_up_date, a.notes, a.updated_at FROM applications a "
+        "JOIN jobs j ON j.id = a.job_id WHERE a.user_id = ?"
+    )
+    args: list = [user_id]
+    if status:
+        if status not in STATUSES:
+            raise ValueError(f"status must be one of {STATUSES}")
+        sql += " AND a.status = ?"
+        args.append(status)
+    if job_id is not None:
+        sql += " AND a.job_id = ?"
+        args.append(job_id)
+    return [dict(r) for r in con.execute(sql + " ORDER BY a.updated_at DESC, a.id DESC", args)]
+
+
+def stale_applications(con: sqlite3.Connection, user_id: int, days: int = 7) -> list[dict]:
+    """Applied/interviewing applications with no update for ``days`` days, or a follow-up date reached."""
+    rows = con.execute(
+        "SELECT a.id, a.job_id, j.title, j.company, a.status, a.applied_date, a.follow_up_date, a.updated_at "
+        "FROM applications a JOIN jobs j ON j.id = a.job_id "
+        "WHERE a.user_id = ? AND a.status IN ('applied', 'interview') AND "
+        "(a.updated_at <= datetime('now', ?) OR (a.follow_up_date IS NOT NULL AND a.follow_up_date <= date('now'))) "
+        "ORDER BY a.updated_at",
+        (user_id, f"-{int(days)} days"),
+    )
+    return [dict(r) for r in rows]
+
+
+def funnel(con: sqlite3.Connection, user_id: int) -> dict:
+    counts = {s: 0 for s in STATUSES}
+    for r in con.execute("SELECT status, COUNT(*) n FROM applications WHERE user_id = ? GROUP BY status", (user_id,)):
+        counts[r["status"]] = r["n"]
+    reached = counts["applied"] + counts["interview"] + counts["offer"] + counts["rejected"] + counts["ghosted"]
+    interviews = counts["interview"] + counts["offer"]
+    return {
+        "by_status": counts,
+        "total": sum(counts.values()),
+        "interview_rate_pct": round(100 * interviews / reached) if reached else None,
+    }
