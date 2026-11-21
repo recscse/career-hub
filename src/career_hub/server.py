@@ -459,8 +459,11 @@ def search_jobs(
     remote_only: bool = False,
     limit: int = 20,
     save: bool = False,
+    allow_management: bool = False,
 ) -> dict:
     """Fetch public job postings, rank them against the stored skills, optionally save them.
+    Ordered by `fit` (tech overlap, role type; sales/non-engineering and management roles rank low
+    unless allow_management=True).
 
     provider: greenhouse | lever | ashby (board = the company's board name, e.g. 'gitlab') or
     hn (latest 'Who is hiring' thread; board not needed). keywords: keep postings mentioning any.
@@ -474,13 +477,15 @@ def search_jobs(
     ranked = []
     for j in jobs:
         cmp = matching.compare(con, uid, description=f"{j['title']}\n{j['description']}")
-        ranked.append((cmp["score"] if cmp["score"] is not None else -1, j, cmp))
+        f, why = matching.fit(j["title"], cmp, allow_management=allow_management)
+        cmp["fit"], cmp["why"] = f, why
+        ranked.append((f, j, cmp))
     ranked.sort(key=lambda x: -x[0])
     results = []
     for score, j, cmp in ranked[: max(1, min(int(limit), 50))]:
         row = {
             "title": j["title"], "company": j["company"], "url": j["url"], "location": j["location"],
-            "remote": j["remote"], "score": cmp["score"],
+            "remote": j["remote"], "fit": cmp["fit"], "why": cmp["why"], "score": cmp["score"],
             "matched": [m["skill"] for m in cmp["matched"]], "missing": cmp["missing"][:8],
         }
         if save:

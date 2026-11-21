@@ -96,3 +96,31 @@ def compare(con: sqlite3.Connection, user_id: int, *, job_id: int | None = None,
             else "No known technologies detected in the text; paste a fuller description or set required_skills."
         ),
     }
+
+
+# ---- ranking for job search ---------------------------------------------------
+# `score` is the share of a posting's named technologies you have. On its own it ranks a sales role
+# that mentions one of your skills at 100, so search results are ordered by `fit` instead.
+_ENGINEER = re.compile(r"\b(engineer|developer|programmer|swe|sde|software|backend|back-end|platform|sre|devops)\b", re.I)
+_NON_ENGINEERING = re.compile(
+    r"\b(account executive|sales|customer success|customer support|support (agent|specialist)|recruit\w*|talent|"
+    r"marketing|legal|counsel|finance|accountant|accounting|payroll|people partner|people ops|designer|"
+    r"writer|paralegal|business development|partnerships?|procurement|analyst|solutions architect)\b", re.I)
+_MANAGEMENT = re.compile(r"\b(manager|director|vp|vice president|head of|chief|cto)\b", re.I)
+
+
+def fit(title: str, cmp: dict, *, allow_management: bool = False) -> tuple[int, list[str]]:
+    """Ranking score 0-100 combining tech overlap, evidence amount and role type; with reasons."""
+    matched, missing = len(cmp["matched"]), len(cmp["missing"])
+    base = 100 * matched / (matched + missing + 2)  # a single matching term can no longer reach 100
+    reasons = [f"{matched} of {matched + missing} named technologies match"]
+    if _NON_ENGINEERING.search(title):
+        base *= 0.2
+        reasons.append("non-engineering role")
+    elif _ENGINEER.search(title):
+        base += 15
+        reasons.append("engineering title")
+    if not allow_management and _MANAGEMENT.search(title):
+        base *= 0.5
+        reasons.append("management role")
+    return max(0, min(100, round(base))), reasons
