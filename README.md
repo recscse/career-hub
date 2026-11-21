@@ -22,9 +22,10 @@ Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project
 `add_job`, `compare_job_to_profile` (keyword skill match: matched/missing/score), `track_application`,
 `list_applications`, `stale_applications`, `pipeline_stats`,
 `add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan`,
-`save_resume_version`, `list_resume_versions`, `get_resume_version`, `diff_resume_versions`, `weekly_review`.
+`search_jobs` (greenhouse/lever/ashby board or HN thread, ranked by skill match, optional save),
+`sync_github_contributions(username)`, `save_resume_version`, `list_resume_versions`, `get_resume_version`, `diff_resume_versions`, `weekly_review`.
 
 Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
 
 ## Roadmap
-Next: job-board connectors (Greenhouse/Lever/Ashby/HN), GitHub contribution sync, HTTP transport + token auth, Docker.
+Next: HTTP transport + token auth, Docker, PyPI packaging, multi-user hardening, HTTP transport + token auth, Docker.
