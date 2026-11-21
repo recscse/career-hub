@@ -9,7 +9,7 @@ import os
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import connectors, context, db, github_sync, matching, resume
+from . import connectors, context, db, github_sync, matching, portfolio, resume
 
 mcp = MCPServer(
     "career-hub",
@@ -452,6 +452,31 @@ def sync_github_contributions(username: str) -> dict:
             db.update_item(con, uid, "contributions", cur["id"], status=pr["status"])
             updated += 1
     return {"checked": len(prs), "added": added, "status_updated": updated}
+
+
+@safe_tool
+def portfolio_data() -> dict:
+    """The public portfolio as JSON (only items marked visibility='public'). Safe to hand to a
+    website; works in hosted mode. Never includes preferences, skill evidence or private repos."""
+    con, uid = _ctx()
+    return portfolio.build_site_data(con, uid)
+
+
+@safe_tool
+def build_portfolio(out_dir: str = "site", overwrite: bool = False) -> dict:
+    """Write a static portfolio (index.html, data.json, resume.md) from public items into out_dir.
+
+    Mark items public first (update_item with fields {'visibility': 'public'}); everything is
+    private by default. Refuses to replace files this tool did not generate unless overwrite=True.
+    Disabled in hosted mode because it writes to the server's disk; use portfolio_data there.
+    """
+    if context.hosted():
+        raise ValueError("build_portfolio writes files on the server and is disabled in hosted mode; use portfolio_data")
+    con, uid = _ctx()
+    try:
+        return portfolio.build(con, uid, out_dir, overwrite)
+    except portfolio.PortfolioError as e:
+        raise ValueError(str(e)) from e
 
 
 @safe_tool

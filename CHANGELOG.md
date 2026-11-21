@@ -9,3 +9,4 @@
 - Versioned schema migrations (schema v2); Dockerfile.
 - GitHub profile sync: opt-in repo import (languages by code bytes, README excerpt, your commit count) with linked projects, user-owned summaries that survive re-sync, and skill suggestions from your code.
 - `tailor_resume`: job-specific resume that reorders skills and selects the most relevant projects (with a why-report); never adds unproven skills.
+- `build_portfolio` / `portfolio_data`: static portfolio (HTML, JSON, resume.md) generated only from public items; escaped output, no scripts or external requests; never overwrites files it did not create.
