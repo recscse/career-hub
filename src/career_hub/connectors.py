@@ -178,3 +178,85 @@ def fetch_github_prs(username: str) -> list[dict]:
         status = "merged" if merged else ("open" if i["state"] == "open" else "closed")
         out.append({"repo": repo, "title": i["title"], "url": i["html_url"], "status": status})
     return out
+
+
+# ---- GitHub profile (stage G) -------------------------------------------------------
+
+
+def _check_gh_user(username: str) -> str:
+    if not GH_USER_RE.match(username or ""):
+        raise ConnectorError("invalid GitHub username")
+    return username
+
+
+def fetch_user_repos(username: str, include_forks: bool = False, include_archived: bool = False) -> list[dict]:
+    """Public repositories of a user, newest push first (up to 300)."""
+    u = _check_gh_user(username)
+    out: list[dict] = []
+    for page in (1, 2, 3):
+        batch = _get_json(f"https://api.github.com/users/{u}/repos?per_page=100&sort=pushed&page={page}")
+        for r in batch:
+            if (r.get("fork") and not include_forks) or (r.get("archived") and not include_archived):
+                continue
+            out.append(
+                {
+                    "name": r["name"],
+                    "full_name": r["full_name"],
+                    "owner": r["owner"]["login"],
+                    "description": (r.get("description") or "")[:500] or None,
+                    "language": r.get("language"),
+                    "stars": r.get("stargazers_count", 0),
+                    "topics": ",".join(r.get("topics") or []) or None,
+                    "homepage": r.get("homepage") or None,
+                    "url": r["html_url"],
+                    "is_fork": 1 if r.get("fork") else 0,
+                    "archived": bool(r.get("archived")),
+                    "pushed_at": r.get("pushed_at"),
+                }
+            )
+        if len(batch) < 100:
+            break
+    return out
+
+
+def _repo_path(full_name: str) -> str:
+    owner, _, name = (full_name or "").partition("/")
+    return f"{_check_name(owner, 'owner')}/{_check_name(name, 'repository')}"
+
+
+def fetch_repo_languages(full_name: str) -> dict[str, int]:
+    """Bytes of code per language (GitHub's measure; not lines of code)."""
+    return dict(_get_json(f"https://api.github.com/repos/{_repo_path(full_name)}/languages"))
+
+
+def fetch_repo_readme(full_name: str, max_chars: int = 1500) -> str | None:
+    import base64
+
+    try:
+        data = _get_json(f"https://api.github.com/repos/{_repo_path(full_name)}/readme")
+    except ConnectorError:
+        return None  # having no README is normal
+    if data.get("encoding") != "base64":
+        return None
+    text = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)  # drop images and badges
+    return clean_html(text)[:max_chars] or None
+
+
+def fetch_my_commit_count(full_name: str, username: str) -> int | None:
+    """Commits GitHub attributes to ``username`` (via the contributors list); None if unknown.
+
+    Commits made with an email not linked to the account are not counted, and GitHub lists at most
+    500 contributors, so treat this as a lower bound.
+    """
+    _check_gh_user(username)
+    try:
+        people = _get_json(f"https://api.github.com/repos/{_repo_path(full_name)}/contributors?per_page=100")
+    except ConnectorError:
+        return None
+    if not isinstance(people, list):
+        return None
+    for p in people:
+        if (p.get("login") or "").lower() == username.lower():
+            return int(p.get("contributions", 0))
+    return 0

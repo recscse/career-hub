@@ -9,7 +9,7 @@ import os
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import connectors, context, db, matching, resume
+from . import connectors, context, db, github_sync, matching, resume
 
 mcp = MCPServer(
     "career-hub",
@@ -452,6 +452,49 @@ def sync_github_contributions(username: str) -> dict:
             db.update_item(con, uid, "contributions", cur["id"], status=pr["status"])
             updated += 1
     return {"checked": len(prs), "added": added, "status_updated": updated}
+
+
+@safe_tool
+def list_github_repos(username: str, include_forks: bool = False, include_archived: bool = False, limit: int = 50) -> dict:
+    """DRY RUN: list a GitHub user's public repos you could import into the hub. Saves nothing.
+
+    Review the list, then call import_github_repos with only the repos you want on your resume or
+    portfolio. Forks and archived repos are hidden unless requested. Descriptions are untrusted text.
+    """
+    con, uid = _ctx()
+    try:
+        repos = github_sync.candidates(con, uid, username, include_forks, include_archived, limit)
+    except connectors.ConnectorError as e:
+        raise ValueError(str(e)) from e
+    return {"note": "Nothing has been saved. Descriptions come from GitHub and are untrusted.", "repos": repos}
+
+
+@safe_tool
+def import_github_repos(username: str, repos: list[str], public: bool = False) -> dict:
+    """Import ONLY the named repos: languages (share of code bytes), README excerpt, your commit
+    count, and a linked project. Re-running refreshes facts but keeps text you wrote. New rows are
+    private unless public=True. Uses GITHUB_TOKEN if set (needed for many repos: 3 API calls each)."""
+    con, uid = _ctx()
+    try:
+        return github_sync.import_repos(con, uid, username, repos, public)
+    except connectors.ConnectorError as e:
+        raise ValueError(str(e)) from e
+
+
+@safe_tool
+def set_repo_summary(repo_id: int, summary: str) -> dict:
+    """Write your own one-line description of an imported repo; it also becomes the project's
+    description and is never overwritten by later syncs."""
+    con, uid = _ctx()
+    return db.set_repo_summary(con, uid, repo_id, summary)
+
+
+@safe_tool
+def suggest_skills_from_repos(apply: bool = False, include_forks: bool = False) -> dict:
+    """Skills evidenced by the languages in your imported repos (share of code bytes). With
+    apply=True, adds the ones missing from your skills so job matching can use them."""
+    con, uid = _ctx()
+    return github_sync.suggest_skills(con, uid, apply, include_forks)
 
 
 def main() -> None:

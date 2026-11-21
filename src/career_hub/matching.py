@@ -13,7 +13,7 @@ from . import db
 
 # Common technologies/terms used to detect requirements in a job description.
 VOCAB = (
-    "python java javascript typescript golang rust c++ c# ruby php kotlin swift scala sql nosql bash "
+    "python java javascript typescript go rust c++ c# ruby php kotlin swift scala sql nosql bash "
     "react vue angular svelte next.js node.js express django flask fastapi spring rails laravel .net "
     "postgresql mysql sqlite mongodb redis elasticsearch kafka rabbitmq graphql grpc rest "
     "docker kubernetes terraform ansible aws gcp azure linux git ci/cd jenkins github-actions "
@@ -28,6 +28,7 @@ ALIASES = {
     "node": "node.js", "nodejs": "node.js", "nextjs": "next.js", "golang": "go", "reactjs": "react",
     "vuejs": "vue", "tf": "terraform", "ml": "machine-learning", "scikit": "scikit-learn",
     "sklearn": "scikit-learn", "github actions": "github-actions", "cicd": "ci/cd",
+    "dockerfile": "docker",  # GitHub reports Docker usage as the "Dockerfile" language
 }
 # Aliases that appear in text under another spelling.
 TEXT_FORMS = {

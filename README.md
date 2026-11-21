@@ -26,8 +26,9 @@ Your data goes to `./data/career.db` by default; set `CAREER_HUB_DB=/path/to/car
 1. "Import my resume from `~/resume.pdf`" - it reads the file, proposes what to save, and saves it
    once you confirm.
 2. "Show my career summary" - the context any AI can reuse.
-3. "Search Greenhouse board `gitlab` for remote Python jobs and rank them against my skills."
-4. "Track an application for job 3 as applied today" / "what needs a follow-up?" / "weekly review".
+3. "List my GitHub repos, then import `codive` and `my-api`", then "suggest skills from my repos" - so matching uses what you have actually built.
+4. "Search Greenhouse board `gitlab` for remote Python jobs and rank them against my skills."
+5. "Track an application for job 3 as applied today" / "what needs a follow-up?" / "weekly review".
 
 ## What it can do
 | Area | Tools |
@@ -37,7 +38,7 @@ Your data goes to `./data/career.db` by default; set `CAREER_HUB_DB=/path/to/car
 | Jobs | `add_job`, `search_jobs` (Greenhouse, Lever, Ashby, HN "Who is hiring"), `compare_job_to_profile` |
 | Tracking | `track_application`, `list_applications`, `stale_applications`, `pipeline_stats`, `weekly_review` |
 | Prep | `add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan` |
-| GitHub | `sync_github_contributions` (your public PRs to other repos) |
+| GitHub | `list_github_repos` (dry run), `import_github_repos` (only the repos you pick: languages, README, your commits), `set_repo_summary`, `suggest_skills_from_repos`, `sync_github_contributions` (your public PRs to other repos) |
 
 ## Honest limitations
 - Job matching is a **keyword** check for named technologies. It cannot judge seniority, domain or

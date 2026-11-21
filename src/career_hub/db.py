@@ -83,6 +83,19 @@ CREATE TABLE IF NOT EXISTS resume_versions (
 );
 """
 
+REPOS_DDL = """
+CREATE TABLE IF NOT EXISTS repos (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+    full_name TEXT NOT NULL, description TEXT, summary TEXT, language TEXT, languages TEXT,
+    topics TEXT, stars INTEGER, homepage TEXT, url TEXT, is_fork INTEGER NOT NULL DEFAULT 0,
+    pushed_at TEXT, readme_excerpt TEXT, my_commits INTEGER,
+    project_id INTEGER REFERENCES projects(id),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, full_name)
+);
+"""
+
 CREATE_INDEXES = """
 CREATE UNIQUE INDEX IF NOT EXISTS uq_experience ON experience
     (user_id, role, COALESCE(company, ''), COALESCE(start_date, ''));
@@ -101,6 +114,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
 COLUMNS["companies"] = ("name", "website", "remote_policy", "pay_notes", "repo_url", "priority", "notes", "visibility")
 COLUMNS["prep"] = ("topic", "company", "resource", "status", "due_date", "notes")
 COLUMNS["resume_versions"] = ("label", "target_role", "content", "notes")
+COLUMNS["repos"] = ("summary", "visibility")  # the rest is owned by the GitHub sync
 PREP_STATUSES = ("todo", "doing", "done")
 STATUSES = ("saved", "applying", "applied", "interview", "offer", "rejected", "ghosted", "withdrawn")
 PROFILE_COLUMNS = ("name", "headline", "summary", "location", "links", "preferences")
@@ -110,7 +124,9 @@ VISIBILITY = ("private", "public")
 # Schema migrations. Version 1 is the baseline (SCHEMA above). To change the schema later:
 # update SCHEMA for fresh installs AND append one SQL script here for existing databases.
 # Never edit or reorder an entry that has been released.
-MIGRATIONS: list[str] = []
+MIGRATIONS: list[str] = [
+    REPOS_DDL,  # v2: GitHub repos synced from a user's profile
+]
 
 
 def schema_version() -> int:
@@ -150,6 +166,7 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA foreign_keys = ON")
     fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone() is None
     con.executescript(SCHEMA)
+    con.executescript(REPOS_DDL)  # part of the v2 baseline for fresh databases
     con.executescript(CREATE_INDEXES)
     _migrate(con, fresh)
     return con
@@ -434,7 +451,7 @@ def _today(con: sqlite3.Connection) -> str:
 # ---- administration (hosted mode) -----------------------------------------------
 
 USER_TABLES = (
-    "applications", "jobs", "skills", "experience", "projects",
+    "applications", "jobs", "skills", "experience", "repos", "projects",
     "contributions", "companies", "prep", "resume_versions", "profile",
 )
 
@@ -488,3 +505,70 @@ def backup(con: sqlite3.Connection, dest: str | Path) -> Path:
     finally:
         out.close()
     return dest
+
+
+# ---- GitHub repos (stage G) -------------------------------------------------------
+
+REPO_SYNC_FIELDS = (
+    "description", "language", "languages", "topics", "stars", "homepage", "url",
+    "is_fork", "pushed_at", "readme_excerpt", "my_commits",
+)
+
+
+def upsert_repo(con: sqlite3.Connection, user_id: int, full_name: str, visibility: str = "private", **facts) -> dict:
+    """Insert or refresh a synced repo. User-owned fields (summary, visibility) survive a re-sync."""
+    unknown = [k for k in facts if k not in REPO_SYNC_FIELDS]
+    if unknown:
+        raise ValueError(f"unknown repo fields: {unknown}")
+    if visibility not in VISIBILITY:
+        raise ValueError(f"visibility must be one of {VISIBILITY}")
+    cols = ["user_id", "full_name", "visibility", *facts]
+    marks = ", ".join("?" for _ in cols)
+    updates = ", ".join([f"{k} = excluded.{k}" for k in facts] + ["synced_at = datetime('now')"])
+    con.execute(
+        f"INSERT INTO repos({', '.join(cols)}) VALUES ({marks}) "
+        f"ON CONFLICT(user_id, full_name) DO UPDATE SET {updates}",
+        (user_id, full_name, visibility, *facts.values()),
+    )
+    con.commit()
+    row = con.execute("SELECT * FROM repos WHERE user_id = ? AND full_name = ?", (user_id, full_name)).fetchone()
+    return dict(row)
+
+
+def sync_repo_project(con: sqlite3.Connection, user_id: int, repo_id: int, *, name: str, stack: str, outcome: str | None) -> dict:
+    """Create or refresh the project that represents a repo.
+
+    Facts (stack, url, outcome) are refreshed on every sync. Text the user wrote (description) is
+    only filled in when empty, and an existing project with the same name is linked, not replaced.
+    """
+    repo = get_item(con, user_id, "repos", repo_id)
+    project = None
+    if repo["project_id"]:
+        project = con.execute("SELECT * FROM projects WHERE id = ? AND user_id = ?", (repo["project_id"], user_id)).fetchone()
+    if project is None:
+        project = con.execute("SELECT * FROM projects WHERE user_id = ? AND name = ?", (user_id, name)).fetchone()
+    if project is None:
+        cur = con.execute(
+            "INSERT INTO projects(user_id, name, description, stack, url, outcome, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, name, repo["summary"] or repo["description"], stack or None, repo["url"], outcome, repo["visibility"]),
+        )
+        pid = int(cur.lastrowid)
+    else:
+        pid = int(project["id"])
+        con.execute(
+            "UPDATE projects SET stack = ?, url = COALESCE(url, ?), outcome = ?, "
+            "description = COALESCE(description, ?) WHERE id = ?",
+            (stack or None, repo["url"], outcome, repo["summary"] or repo["description"], pid),
+        )
+    con.execute("UPDATE repos SET project_id = ? WHERE id = ? AND user_id = ?", (pid, repo_id, user_id))
+    con.commit()
+    return get_item(con, user_id, "projects", pid)
+
+
+def set_repo_summary(con: sqlite3.Connection, user_id: int, repo_id: int, summary: str) -> dict:
+    """Store your own description of a repo and make it the linked project's description."""
+    repo = update_item(con, user_id, "repos", repo_id, summary=summary)
+    if repo["project_id"]:
+        con.execute("UPDATE projects SET description = ? WHERE id = ? AND user_id = ?", (summary, repo["project_id"], user_id))
+        con.commit()
+    return repo

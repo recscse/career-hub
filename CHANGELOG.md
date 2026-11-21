@@ -6,4 +6,5 @@
 - Jobs, keyword job-to-profile matching, application tracking, prep tracker, company watchlist, weekly review.
 - Job search via Greenhouse, Lever, Ashby and the Hacker News "Who is hiring" thread; GitHub PR sync.
 - Hosted mode: HTTP MCP with per-user bearer tokens, rate limits, admin CLI (users, tokens, export, delete, backup).
-- Versioned schema migrations; Dockerfile.
+- Versioned schema migrations (schema v2); Dockerfile.
+- GitHub profile sync: opt-in repo import (languages by code bytes, README excerpt, your commit count) with linked projects, user-owned summaries that survive re-sync, and skill suggestions from your code.
