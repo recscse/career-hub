@@ -70,7 +70,8 @@ def search_watchlist(
             is_new = j["url"] not in known
             if new_only and not is_new:
                 continue
-            rows.append((score if score is not None else -1, c["name"], j, cmp, is_new))
+            cmp["fit"], cmp["why"] = matching.fit(j["title"], cmp)
+            rows.append((cmp["fit"], c["name"], j, cmp, is_new))
     rows.sort(key=lambda r: (-r[0], r[1]))
 
     # "New" must mean "first time seen". So every new match is saved (up to max_save), not just the
@@ -90,8 +91,8 @@ def search_watchlist(
     for score, company, j, cmp, is_new in rows[: max(1, min(int(limit), 100))]:
         item = {
             "company": company, "title": j["title"], "url": j["url"], "location": j["location"],
-            "remote": j["remote"], "score": cmp["score"], "terms_considered": cmp["terms_considered"],
-            "matched": [m["skill"] for m in cmp["matched"]], "missing": cmp["missing"][:8], "new": is_new,
+            "remote": j["remote"], "fit": cmp["fit"], "why": cmp["why"], "score": cmp["score"],
+            "terms_considered": cmp["terms_considered"], "matched": [m["skill"] for m in cmp["matched"]], "missing": cmp["missing"][:8], "new": is_new,
         }
         if j["url"] in saved_ids:
             item["job_id"] = saved_ids[j["url"]]
