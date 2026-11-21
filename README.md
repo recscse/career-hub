@@ -1,37 +1,58 @@
 # Career Context Hub
 
-Your developer context (profile, skills, experience, projects, open-source work) in one
-SQLite database, served to AI agents over MCP. Every row has a `user_id` and a
-`visibility` (`private` by default) so it can grow to more users later.
+Keep your developer career context (resume, skills, experience, projects, open-source work, job
+search) in **one place on your own machine**, and let any MCP-capable AI tool read and update it.
 
-## Run
-    uv sync
-    uv run career-hub            # stdio MCP server; DB at ./data/career.db (override: CAREER_HUB_DB)
-    uv run pytest
+**The problem it solves:** you paste your resume into every AI chat, get inconsistent answers, and
+your job search lives in scattered tabs. Here, one local database is the source of truth. Ask your
+AI "tailor my resume to this posting", "what skills am I missing for this job?" or "what should I
+follow up on this week?" and it works from the same facts every time.
 
-## Connect Claude Code
-    claude mcp add career-hub -- uv --directory <path-to-this-folder> run career-hub
+Local-first: data lives in a SQLite file you own. Nothing is uploaded; the server only fetches the
+public job boards or GitHub data you ask for.
 
-## MCP surface
-Resources: `career://summary` (give this to an AI as context), `career://profile`,
-`career://skills`, `career://experience`, `career://projects`, `career://contributions`.
-Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`,
-`log_contribution`, `list_items`, `update_item`, `delete_item`,
-`import_resume(path)` (PDF/DOCX/TXT/MD -> text + instructions; the agent saves the data),
-`export_resume(focus_skills, public_only)` (Markdown resume),
-`add_job`, `compare_job_to_profile` (keyword skill match: matched/missing/score), `track_application`,
-`list_applications`, `stale_applications`, `pipeline_stats`,
-`add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan`,
-`search_jobs` (greenhouse/lever/ashby board or HN thread, ranked by skill match, optional save),
-`sync_github_contributions(username)`, `save_resume_version`, `list_resume_versions`, `get_resume_version`, `diff_resume_versions`, `weekly_review`.
+## Install (local mode)
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
-Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
+    # Claude Code
+    claude mcp add career-hub -- uvx career-context-hub
 
-## Hosted mode
-Set `CAREER_HUB_MODE=hosted` to serve MCP over HTTP at `/mcp` with per-user bearer tokens, rate limits and
-DNS-rebinding protection. Manage users with `career-hub-admin` (create-user, rotate-token, export,
-delete-user, backup). Docker files and a step-by-step guide are in `DEPLOY.md`. In hosted mode
-`import_resume` (reads server files) is disabled; use `import_resume_text`.
+    # Any other MCP client: run this command over stdio
+    uvx career-context-hub
 
-## Roadmap
-Next: PyPI packaging, schema migrations, Postgres option, security review before inviting others, HTTP transport + token auth, Docker.
+Your data goes to `./data/career.db` by default; set `CAREER_HUB_DB=/path/to/career.db` to choose.
+
+## First steps (ask your AI)
+1. "Import my resume from `~/resume.pdf`" - it reads the file, proposes what to save, and saves it
+   once you confirm.
+2. "Show my career summary" - the context any AI can reuse.
+3. "Search Greenhouse board `gitlab` for remote Python jobs and rank them against my skills."
+4. "Track an application for job 3 as applied today" / "what needs a follow-up?" / "weekly review".
+
+## What it can do
+| Area | Tools |
+|---|---|
+| Context | `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`, `log_contribution`, `list_items`, `update_item`, `delete_item` + `career://` resources |
+| Resume | `import_resume` (PDF/DOCX/TXT/MD), `export_resume`, `save_resume_version`, `diff_resume_versions` |
+| Jobs | `add_job`, `search_jobs` (Greenhouse, Lever, Ashby, HN "Who is hiring"), `compare_job_to_profile` |
+| Tracking | `track_application`, `list_applications`, `stale_applications`, `pipeline_stats`, `weekly_review` |
+| Prep | `add_company` (watchlist), `add_prep_task`, `set_prep_status`, `prep_plan` |
+| GitHub | `sync_github_contributions` (your public PRs to other repos) |
+
+## Honest limitations
+- Job matching is a **keyword** check for named technologies. It cannot judge seniority, domain or
+  soft requirements; treat the score as a starting point.
+- Resume parsing is done by *your* AI client following the server's instructions, so quality depends
+  on that client. Scanned (image-only) PDFs are not supported.
+- Job-board connectors use public APIs; their availability and terms can change.
+
+## Hosted mode (optional, for you or a small group)
+`CAREER_HUB_MODE=hosted career-hub` serves MCP over HTTP at `/mcp` with per-user bearer tokens, rate
+limits and DNS-rebinding protection. Manage users with `career-hub-admin` (create-user, rotate-token,
+export, delete-user, backup). See [DEPLOY.md](DEPLOY.md). `import_resume` (reads server files) is
+disabled there; use `import_resume_text`.
+
+## Development
+    uv sync && uv run pytest
+
+Schema changes need a migration; see [RELEASING.md](RELEASING.md). License: MIT.

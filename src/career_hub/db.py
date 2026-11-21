@@ -107,6 +107,40 @@ PROFILE_COLUMNS = ("name", "headline", "summary", "location", "links", "preferen
 VISIBILITY = ("private", "public")
 
 
+# Schema migrations. Version 1 is the baseline (SCHEMA above). To change the schema later:
+# update SCHEMA for fresh installs AND append one SQL script here for existing databases.
+# Never edit or reorder an entry that has been released.
+MIGRATIONS: list[str] = []
+
+
+def schema_version() -> int:
+    return 1 + len(MIGRATIONS)
+
+
+def _migrate(con: sqlite3.Connection, fresh: bool) -> None:
+    target = schema_version()
+    if fresh:
+        con.execute(f"PRAGMA user_version = {target}")
+        con.commit()
+        return
+    current = con.execute("PRAGMA user_version").fetchone()[0] or 1  # 0 = created before versioning
+    if current > target:
+        raise RuntimeError(
+            f"database schema v{current} is newer than this career-context-hub (supports v{target}); "
+            "upgrade the package instead of opening it with an older version"
+        )
+    for version in range(current + 1, target + 1):
+        try:
+            con.executescript(f"BEGIN;\n{MIGRATIONS[version - 2]}\nPRAGMA user_version = {version};\nCOMMIT;")
+        except sqlite3.Error:
+            if con.in_transaction:
+                con.rollback()
+            raise
+    if current == 1 and target == 1:
+        con.execute("PRAGMA user_version = 1")
+        con.commit()
+
+
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
     path = Path(path or DEFAULT_DB)
     if str(path) != ":memory:":
@@ -114,8 +148,10 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     con = sqlite3.connect(str(path))
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+    fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone() is None
     con.executescript(SCHEMA)
     con.executescript(CREATE_INDEXES)
+    _migrate(con, fresh)
     return con
 
 

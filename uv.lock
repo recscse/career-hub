@@ -39,7 +39,7 @@ wheels = [
 ]
 
 [[package]]
-name = "career-hub"
+name = "career-context-hub"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

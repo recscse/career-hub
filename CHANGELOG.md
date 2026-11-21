@@ -1,0 +1,9 @@
+# Changelog
+
+## 0.1.0 (unreleased)
+- Local-first MCP server: profile, skills, experience, projects, contributions.
+- Resume import (PDF/DOCX/TXT/MD) and Markdown export; resume versions with diff.
+- Jobs, keyword job-to-profile matching, application tracking, prep tracker, company watchlist, weekly review.
+- Job search via Greenhouse, Lever, Ashby and the Hacker News "Who is hiring" thread; GitHub PR sync.
+- Hosted mode: HTTP MCP with per-user bearer tokens, rate limits, admin CLI (users, tokens, export, delete, backup).
+- Versioned schema migrations; Dockerfile.
