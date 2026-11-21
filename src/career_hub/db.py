@@ -49,6 +49,12 @@ CREATE TABLE IF NOT EXISTS contributions (
 );
 """
 
+CREATE_INDEXES = """
+CREATE UNIQUE INDEX IF NOT EXISTS uq_experience ON experience
+    (user_id, role, COALESCE(company, ''), COALESCE(start_date, ''));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_projects ON projects (user_id, name);
+"""
+
 # Whitelist of editable columns per table. Table and column names never come
 # from user input directly, so they are safe to interpolate into SQL.
 COLUMNS: dict[str, tuple[str, ...]] = {
@@ -69,6 +75,7 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
+    con.executescript(CREATE_INDEXES)
     return con
 
 

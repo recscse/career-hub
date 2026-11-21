@@ -35,3 +35,24 @@ async def test_agent_flow(tmp_path):
 
         bad = await s.call_tool("update_item", {"table": "skills", "item_id": 1, "fields": {"bogus": 1}})
         assert bad.is_error
+
+
+@pytest.mark.asyncio
+async def test_import_and_export_tools(tmp_path):
+    resume_file = tmp_path / "resume.txt"
+    resume_file.write_text("Ada\nPython, 5 years", encoding="utf-8")
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "career_hub.server"],
+        env={"CAREER_HUB_DB": str(tmp_path / "c.db")},
+    )
+    async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
+        await s.initialize()
+        res = await s.call_tool("import_resume", {"path": str(resume_file)})
+        assert "Python, 5 years" in _text(res) and "add_skill" in _text(res)
+        bad = await s.call_tool("import_resume", {"path": str(tmp_path / "nope.txt")})
+        assert bad.is_error
+
+        await s.call_tool("add_skill", {"name": "Python", "years": 5})
+        md = _text(await s.call_tool("export_resume", {"focus_skills": ["Python"]}))
+        assert "## Skills" in md and "Python" in md

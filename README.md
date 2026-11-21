@@ -16,7 +16,11 @@ SQLite database, served to AI agents over MCP. Every row has a `user_id` and a
 Resources: `career://summary` (give this to an AI as context), `career://profile`,
 `career://skills`, `career://experience`, `career://projects`, `career://contributions`.
 Tools: `get_summary`, `set_profile`, `add_skill`, `add_experience`, `add_project`,
-`log_contribution`, `list_items`, `update_item`, `delete_item`.
+`log_contribution`, `list_items`, `update_item`, `delete_item`,
+`import_resume(path)` (PDF/DOCX/TXT/MD -> text + instructions; the agent saves the data),
+`export_resume(focus_skills, public_only)` (Markdown resume).
+
+Set `CAREER_HUB_IMPORT_DIR` to restrict which folder `import_resume` may read (recommended on a server).
 
 ## Roadmap
-Jobs, applications, prep, `compare_job_to_profile`, resume versions, HTTP transport + token auth, Docker.
+Next: jobs, applications, prep, `compare_job_to_profile`, resume versions, HTTP transport + token auth, Docker.

@@ -6,7 +6,7 @@ import json
 
 from mcp.server.mcpserver import MCPServer
 
-from . import db
+from . import db, resume
 
 mcp = MCPServer(
     "career-hub",
@@ -156,6 +156,29 @@ def delete_item(table: str, item_id: int) -> str:
     con, uid = _ctx()
     db.delete_item(con, uid, table, item_id)
     return f"deleted {table} {item_id}"
+
+
+@mcp.tool()
+def import_resume(path: str) -> str:
+    """Read a resume file (.pdf, .docx, .txt, .md) and return its text with instructions.
+
+    Follow the returned instructions to save the data with the add_* tools. The server does not
+    parse the resume itself; you do the mapping, and the user should confirm what is saved.
+    """
+    try:
+        return resume.import_payload(path)
+    except resume.ResumeError as e:
+        raise ValueError(str(e)) from e
+
+
+@mcp.tool()
+def export_resume(focus_skills: list[str] | None = None, public_only: bool = False) -> str:
+    """Build a Markdown resume from stored data. focus_skills are listed first (tailor to a role).
+
+    public_only=True includes only rows marked visibility='public'.
+    """
+    con, uid = _ctx()
+    return resume.export_markdown(con, uid, focus_skills=focus_skills, public_only=public_only)
 
 
 def main() -> None:

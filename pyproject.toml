@@ -5,6 +5,8 @@ description = "Career Context Hub: developer context + job tracking, served to A
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=2.3.0",
+    "pypdf>=7.1.0",
+    "python-docx>=1.2.0",
 ]
 
 [project.scripts]
